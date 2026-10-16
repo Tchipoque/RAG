@@ -1,5 +1,5 @@
 import ast
-from models import MinimalSource
+from src.models import MinimalSource
 
 def build_line_offset(content: str) -> list[int]:
 	offsets = [0]
@@ -36,6 +36,31 @@ def chunk_python(file_path: str, content: str, max_chunk_size: int) -> list[dict
 
 	if pending_start < len(content):
 		chunks.extend(make_sized_chunks(file_path, content, pending_start, len(content), max_chunk_size))
+
+	return chunks
+
+
+def chunk_markdown(file_path: str, content: str, max_chunk_size: int):
+	chunks = []
+	pos = 0
+	para_start = 0
+	in_fence = False
+
+	for line in content.splitlines(keepends=True):
+		if line.lstrip().startswith("```"):
+			in_fence = not in_fence
+		pos += len(line)
+
+		if not in_fence and not line.strip():
+			para = content[para_start: pos].strip()
+			if para.startswith("#") and "\n" not in para:
+				continue
+			chunks.extend(make_sized_chunks(file_path, content, para_start, pos, max_chunk_size))
+			para_start = pos
+
+	if para_start < len(content):
+		chunks.extend(make_sized_chunks(file_path, content, para_start, len(content), max_chunk_size))
+
 
 	return chunks
 
