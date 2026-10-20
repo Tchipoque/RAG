@@ -1,1 +1,1629 @@
-{"chunks": [{"source": {"file_path": "data/test/block_manager.py", "first_character_index": 0, "last_character_index": 116}, "text": "\"\"\"Simplified block manager used to test Python chunking.\"\"\"\n\nfrom dataclasses import dataclass, field\n\n\n@dataclass\n"}, {"source": {"file_path": "data/test/block_manager.py", "first_character_index": 116, "last_character_index": 178}, "text": "class PhysicalBlock:\n    block_id: int\n    ref_count: int = 0\n"}, {"source": {"file_path": "data/test/block_manager.py", "first_character_index": 180, "last_character_index": 773}, "text": "class BlockAllocator:\n    \"\"\"Hands out physical KV cache blocks and tracks free ones.\"\"\"\n\n    def __init__(self, num_blocks: int) -> None:\n        self.free_blocks = [PhysicalBlock(i) for i in range(num_blocks)]\n\n    def allocate(self) -> PhysicalBlock:\n        if not self.free_blocks:\n            raise MemoryError(\"No free KV cache blocks left\")\n        block = self.free_blocks.pop()\n        block.ref_count = 1\n        return block\n\n    def free(self, block: PhysicalBlock) -> None:\n        block.ref_count -= 1\n        if block.ref_count == 0:\n            self.free_blocks.append(block)\n"}, {"source": {"file_path": "data/test/block_manager.py", "first_character_index": 773, "last_character_index": 786}, "text": "\n\n@dataclass\n"}, {"source": {"file_path": "data/test/block_manager.py", "first_character_index": 786, "last_character_index": 1018}, "text": "class BlockTable:\n    \"\"\"Maps logical blocks of a sequence to physical blocks.\"\"\"\n\n    blocks: list[PhysicalBlock] = field(default_factory=list)\n\n    def append(self, block: PhysicalBlock) -> None:\n        self.blocks.append(block)\n"}, {"source": {"file_path": "data/test/block_manager.py", "first_character_index": 1020, "last_character_index": 1239}, "text": "def swap_out_to_cpu(table: BlockTable, allocator: BlockAllocator) -> None:\n    \"\"\"Preempt a sequence by releasing its GPU blocks.\"\"\"\n    for block in table.blocks:\n        allocator.free(block)\n    table.blocks.clear()\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 0, "last_character_index": 27}, "text": "# vLLM Notes\n\n## Overview\n\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 27, "last_character_index": 318}, "text": "vLLM is a high-throughput inference and serving engine for large language models. It focuses on efficient memory management and continuous batching so that many requests can share the same GPU without wasting memory. The project started at UC Berkeley and is now widely used in production.\n\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 318, "last_character_index": 776}, "text": "## PagedAttention\n\nPagedAttention is the core idea behind vLLM. Instead of storing the key-value cache of each sequence in one contiguous block of GPU memory, it splits the cache into fixed-size blocks called pages. A block table maps each logical block of a sequence to a physical block in memory. This removes most external fragmentation and allows blocks to be shared between sequences, for example when several outputs are sampled from the same prompt.\n\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 776, "last_character_index": 1137}, "text": "## Continuous Batching\n\nTraditional static batching waits for every request in a batch to finish before starting new ones. Continuous batching schedules work at the iteration level: when a sequence finishes, its slot is immediately given to a waiting request. This keeps the GPU busy and greatly improves throughput, especially when output lengths vary a lot.\n\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 1137, "last_character_index": 1607}, "text": "## KV Cache Management\n\nThe KV cache stores the attention keys and values of already processed tokens so they do not need to be recomputed at every decoding step. Its size grows linearly with sequence length and batch size, which makes it the main memory bottleneck during inference. The block manager allocates, frees and swaps cache blocks. When memory runs out, the scheduler can preempt a sequence by swapping its blocks to CPU memory or by recomputing them later.\n\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 1607, "last_character_index": 1970}, "text": "## Prefix Caching\n\nAutomatic prefix caching reuses KV cache blocks across requests that share the same prompt prefix, such as a long system prompt or a few-shot template. Each block is hashed based on its tokens and the tokens before it. If a new request produces a matching hash, the cached block is reused and the prefill computation for that part is skipped.\n\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 1970, "last_character_index": 2348}, "text": "## Scheduler\n\nThe scheduler decides which requests run in each step. It keeps three queues: waiting, running and swapped. At every iteration it tries to admit waiting requests while respecting limits such as max_num_seqs and max_num_batched_tokens. Chunked prefill can split a long prompt into smaller pieces so that decoding requests are not stalled by a single huge prefill.\n\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 2348, "last_character_index": 2702}, "text": "## Quantization\n\nvLLM supports several quantization methods to reduce memory use and speed up inference, including GPTQ, AWQ, FP8 and INT8. Quantized weights take less space, which leaves more room for the KV cache and therefore allows larger batches. The trade-off is a small potential loss in model quality, which depends on the method and the model.\n\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 2702, "last_character_index": 3103}, "text": "## Tensor Parallelism\n\nFor models too large for a single GPU, vLLM can shard the weights across several GPUs using tensor parallelism. Each layer is split so that every GPU computes a part of the matrix multiplications, and results are combined with all-reduce operations. The option tensor_parallel_size controls how many GPUs are used. Pipeline parallelism is also available for multi-node setups.\n\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 3103, "last_character_index": 3470}, "text": "## OpenAI-Compatible Server\n\nvLLM ships with a server that implements the OpenAI API, including the completions and chat completions endpoints. You can start it with the vllm serve command and point existing OpenAI clients to it by changing the base URL. Streaming responses, logprobs and sampling parameters such as temperature, top_p and max_tokens are supported.\n\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 3470, "last_character_index": 3772}, "text": "## Speculative Decoding\n\nSpeculative decoding uses a small draft model to propose several tokens at once, which the large target model then verifies in a single forward pass. When the draft is accurate, multiple tokens are accepted per step, reducing latency without changing the output distribution.\n\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 3772, "last_character_index": 4054}, "text": "## Installation\n\nInstall vLLM with pip install vllm in a Python environment that has a compatible CUDA version. Building from source is possible for custom kernels or unreleased features. Make sure the PyTorch version matches the one vLLM was built against to avoid import errors.\n\n"}, {"source": {"file_path": "data/test/vllm_notes.md", "first_character_index": 4054, "last_character_index": 4381}, "text": "## Common Errors\n\nAn out of memory error usually means gpu_memory_utilization is too high or max_model_len is too large for the available GPU. Lowering max_model_len, using a quantized model or enabling tensor parallelism are the usual fixes. A CUDA version mismatch often shows up as an undefined symbol error at import time.\n"}], "index": {"\"\"\"Simplified block manager used to test Python chunking.\"\"\"": {"0": 1}, "from": {"0": 1, "8": 1, "17": 1}, "dataclasses": {"0": 1}, "import": {"0": 1, "17": 1, "18": 1}, "dataclass": {"0": 2, "3": 1}, ",": {"0": 1, "2": 2, "4": 1, "5": 1}, "field": {"0": 1, "4": 1}, "@": {"0": 1, "3": 1}, "class": {"1": 1, "2": 1, "4": 1}, "PhysicalBlock": {"1": 1, "2": 3, "4": 2}, ":": {"1": 3, "2": 8, "4": 4, "5": 4}, "block_id": {"1": 1}, "int": {"1": 2, "2": 1}, "ref_count": {"1": 1, "2": 3}, "=": {"1": 1, "2": 3, "4": 2}, "0": {"1": 1, "2": 1}, "BlockAllocator": {"2": 1, "5": 1}, "\"\"\"Hands out physical KV cache blocks and tracks free ones.\"\"\"": {"2": 1}, "def": {"2": 3, "4": 1, "5": 1}, "__init__": {"2": 1}, "(": {"2": 8, "4": 3, "5": 3}, "self": {"2": 7, "4": 2}, "num_blocks": {"2": 2}, ")": {"2": 8, "4": 3, "5": 3}, "->": {"2": 3, "4": 1, "5": 1}, "None": {"2": 2, "4": 1, "5": 1}, ".": {"2": 9, "4": 2, "5": 4}, "free_blocks": {"2": 4}, "[": {"2": 1, "4": 1}, "i": {"2": 2}, "for": {"2": 1, "5": 1, "7": 1, "8": 1, "9": 1, "11": 1, "13": 1, "14": 3, "17": 1, "18": 1}, "in": {"2": 1, "5": 1, "7": 1, "8": 2, "9": 1, "12": 1, "13": 1, "16": 1, "17": 1}, "range": {"2": 1}, "]": {"2": 1, "4": 1}, "allocate": {"2": 1}, "if": {"2": 2, "11": 1}, "not": {"2": 1, "10": 1, "12": 1}, "raise": {"2": 1}, "MemoryError": {"2": 1}, "\"No free KV cache blocks left\"": {"2": 1}, "block": {"2": 7, "4": 2, "5": 2, "8": 4, "10": 1, "11": 2}, "pop": {"2": 1}, "1": {"2": 2}, "return": {"2": 1}, "free": {"2": 1, "5": 1}, "-=": {"2": 1}, "==": {"2": 1}, "append": {"2": 1, "4": 2}, "BlockTable": {"4": 1, "5": 1}, "\"\"\"Maps logical blocks of a sequence to physical blocks.\"\"\"": {"4": 1}, "blocks": {"4": 2, "5": 2, "8": 2, "10": 2, "11": 1}, "list": {"4": 2}, "default_factory": {"4": 1}, "swap_out_to_cpu": {"5": 1}, "table": {"5": 3, "8": 1}, "allocator": {"5": 2}, "\"\"\"Preempt a sequence by releasing its GPU blocks.\"\"\"": {"5": 1}, "clear": {"5": 1}, "vllm": {"6": 1, "7": 1, "8": 1, "13": 1, "14": 1, "15": 2, "17": 3}, "notes": {"6": 1}, "overview": {"6": 1}, "is": {"7": 2, "8": 1, "9": 1, "11": 3, "13": 1, "14": 2, "16": 1, "17": 1, "18": 2}, "a": {"7": 1, "8": 3, "9": 4, "10": 1, "11": 4, "12": 2, "13": 1, "14": 2, "15": 1, "16": 2, "17": 2, "18": 2}, "high": {"7": 1, "18": 1}, "throughput": {"7": 1, "9": 1}, "inference": {"7": 1, "10": 1, "13": 1}, "and": {"7": 3, "8": 1, "9": 1, "10": 3, "11": 2, "12": 2, "13": 4, "14": 1, "15": 4}, "serving": {"7": 1}, "engine": {"7": 1}, "large": {"7": 1, "14": 1, "16": 1, "18": 1}, "language": {"7": 1}, "models": {"7": 1, "14": 1}, "it": {"7": 1, "8": 1, "10": 1, "11": 1, "12": 2, "15": 2}, "focuses": {"7": 1}, "on": {"7": 1, "11": 1, "13": 1}, "efficient": {"7": 1}, "memory": {"7": 2, "8": 2, "10": 3, "13": 1, "18": 1}, "management": {"7": 1, "10": 1}, "continuous": {"7": 1, "9": 2}, "batching": {"7": 1, "9": 3}, "so": {"7": 1, "10": 1, "12": 1, "14": 1}, "that": {"7": 1, "11": 2, "12": 1, "14": 1, "15": 1, "17": 1}, "many": {"7": 1, "14": 1}, "requests": {"7": 1, "11": 1, "12": 3}, "can": {"7": 1, "10": 1, "12": 1, "14": 1, "15": 1}, "share": {"7": 1, "11": 1}, "the": {"7": 2, "8": 4, "9": 2, "10": 5, "11": 4, "12": 1, "13": 4, "14": 3, "15": 4, "16": 3, "17": 2, "18": 2}, "same": {"7": 1, "8": 1, "11": 1}, "gpu": {"7": 1, "8": 1, "9": 1, "14": 2, "18": 1}, "without": {"7": 1, "16": 1}, "wasting": {"7": 1}, "project": {"7": 1}, "started": {"7": 1}, "at": {"7": 1, "9": 1, "10": 1, "12": 1, "16": 1, "18": 1}, "uc": {"7": 1}, "berkeley": {"7": 1}, "now": {"7": 1}, "widely": {"7": 1}, "used": {"7": 1, "14": 1}, "production": {"7": 1}, "pagedattention": {"8": 2}, "core": {"8": 1}, "idea": {"8": 1}, "behind": {"8": 1}, "instead": {"8": 1}, "of": {"8": 4, "10": 1, "14": 1, "18": 1}, "storing": {"8": 1}, "key": {"8": 1}, "value": {"8": 1}, "cache": {"8": 2, "10": 3, "11": 1, "13": 1}, "each": {"8": 2, "11": 1, "12": 1, "14": 1}, "sequence": {"8": 2, "9": 1, "10": 2}, "one": {"8": 1, "17": 1}, "contiguous": {"8": 1}, "splits": {"8": 1}, "into": {"8": 1, "12": 1}, "fixed": {"8": 1}, "size": {"8": 1, "10": 2}, "called": {"8": 1}, "pages": {"8": 1}, "maps": {"8": 1}, "logical": {"8": 1}, "to": {"8": 2, "9": 2, "10": 2, "12": 1, "13": 1, "15": 1, "16": 1, "17": 1}, "physical": {"8": 1}, "this": {"8": 1, "9": 1}, "removes": {"8": 1}, "most": {"8": 1}, "external": {"8": 1}, "fragmentation": {"8": 1}, "allows": {"8": 1, "13": 1}, "be": {"8": 1, "10": 1}, "shared": {"8": 1}, "between": {"8": 1}, "sequences": {"8": 1}, "example": {"8": 1}, "when": {"8": 1, "9": 2, "10": 1, "16": 1}, "several": {"8": 1, "13": 1, "14": 1, "16": 1}, "outputs": {"8": 1}, "are": {"8": 1, "12": 1, "14": 2, "15": 1, "16": 1, "18": 1}, "sampled": {"8": 1}, "prompt": {"8": 1, "11": 2, "12": 1}, "traditional": {"9": 1}, "static": {"9": 1}, "waits": {"9": 1}, "every": {"9": 1, "10": 1, "12": 1, "14": 1}, "request": {"9": 2, "11": 1}, "batch": {"9": 1, "10": 1}, "finish": {"9": 1}, "before": {"9": 1, "11": 1}, "starting": {"9": 1}, "new": {"9": 1, "11": 1}, "ones": {"9": 1}, "schedules": {"9": 1}, "work": {"9": 1}, "iteration": {"9": 1, "12": 1}, "level": {"9": 1}, "finishes": {"9": 1}, "its": {"9": 1, "10": 2, "11": 1}, "slot": {"9": 1}, "immediately": {"9": 1}, "given": {"9": 1}, "waiting": {"9": 1, "12": 2}, "keeps": {"9": 1, "12": 1}, "busy": {"9": 1}, "greatly": {"9": 1}, "improves": {"9": 1}, "especially": {"9": 1}, "output": {"9": 1, "16": 1}, "lengths": {"9": 1}, "vary": {"9": 1}, "lot": {"9": 1}, "kv": {"10": 2, "11": 1, "13": 1}, "stores": {"10": 1}, "attention": {"10": 1}, "keys": {"10": 1}, "values": {"10": 1}, "already": {"10": 1}, "processed": {"10": 1}, "tokens": {"10": 1, "11": 2, "16": 2}, "they": {"10": 1}, "do": {"10": 1}, "need": {"10": 1}, "recomputed": {"10": 1}, "decoding": {"10": 1, "12": 1, "16": 2}, "step": {"10": 1, "12": 1, "16": 1}, "grows": {"10": 1}, "linearly": {"10": 1}, "with": {"10": 1, "14": 1, "15": 2, "17": 1}, "length": {"10": 1}, "which": {"10": 1, "12": 1, "13": 2, "16": 1}, "makes": {"10": 1}, "main": {"10": 1}, "bottleneck": {"10": 1}, "during": {"10": 1}, "manager": {"10": 1}, "allocates": {"10": 1}, "frees": {"10": 1}, "swaps": {"10": 1}, "runs": {"10": 1}, "out": {"10": 1, "18": 1}, "scheduler": {"10": 1, "12": 2}, "preempt": {"10": 1}, "by": {"10": 2, "12": 1, "15": 1}, "swapping": {"10": 1}, "cpu": {"10": 1}, "or": {"10": 1, "11": 1, "17": 1, "18": 2}, "recomputing": {"10": 1}, "them": {"10": 1}, "later": {"10": 1}, "prefix": {"11": 3}, "caching": {"11": 2}, "automatic": {"11": 1}, "reuses": {"11": 1}, "across": {"11": 1, "14": 1}, "such": {"11": 1, "12": 1, "15": 1}, "as": {"11": 1, "12": 1, "15": 1, "18": 1}, "long": {"11": 1, "12": 1}, "system": {"11": 1}, "few": {"11": 1}, "shot": {"11": 1}, "template": {"11": 1}, "hashed": {"11": 1}, "based": {"11": 1}, "produces": {"11": 1}, "matching": {"11": 1}, "hash": {"11": 1}, "cached": {"11": 1}, "reused": {"11": 1}, "prefill": {"11": 1, "12": 2}, "computation": {"11": 1}, "part": {"11": 1, "14": 1}, "skipped": {"11": 1}, "decides": {"12": 1}, "run": {"12": 1}, "three": {"12": 1}, "queues": {"12": 1}, "running": {"12": 1}, "swapped": {"12": 1}, "tries": {"12": 1}, "admit": {"12": 1}, "while": {"12": 1}, "respecting": {"12": 1}, "limits": {"12": 1}, "max_num_seqs": {"12": 1}, "max_num_batched_tokens": {"12": 1}, "chunked": {"12": 1}, "split": {"12": 1, "14": 1}, "smaller": {"12": 1}, "pieces": {"12": 1}, "stalled": {"12": 1}, "single": {"12": 1, "14": 1, "16": 1}, "huge": {"12": 1}, "quantization": {"13": 2}, "supports": {"13": 1}, "methods": {"13": 1}, "reduce": {"13": 1, "14": 1}, "use": {"13": 1}, "speed": {"13": 1}, "up": {"13": 1, "18": 1}, "including": {"13": 1, "15": 1}, "gptq": {"13": 1}, "awq": {"13": 1}, "fp8": {"13": 1}, "int8": {"13": 1}, "quantized": {"13": 1, "18": 1}, "weights": {"13": 1, "14": 1}, "take": {"13": 1}, "less": {"13": 1}, "space": {"13": 1}, "leaves": {"13": 1}, "more": {"13": 1}, "room": {"13": 1}, "therefore": {"13": 1}, "larger": {"13": 1}, "batches": {"13": 1}, "trade": {"13": 1}, "off": {"13": 1}, "small": {"13": 1, "16": 1}, "potential": {"13": 1}, "loss": {"13": 1}, "model": {"13": 2, "16": 2, "18": 1}, "quality": {"13": 1}, "depends": {"13": 1}, "method": {"13": 1}, "tensor": {"14": 2, "18": 1}, "parallelism": {"14": 3, "18": 1}, "too": {"14": 1, "18": 2}, "shard": {"14": 1}, "gpus": {"14": 2}, "using": {"14": 1, "18": 1}, "layer": {"14": 1}, "computes": {"14": 1}, "matrix": {"14": 1}, "multiplications": {"14": 1}, "results": {"14": 1}, "combined": {"14": 1}, "all": {"14": 1}, "operations": {"14": 1}, "option": {"14": 1}, "tensor_parallel_size": {"14": 1}, "controls": {"14": 1}, "how": {"14": 1}, "pipeline": {"14": 1}, "also": {"14": 1}, "available": {"14": 1, "18": 1}, "multi": {"14": 1}, "node": {"14": 1}, "setups": {"14": 1}, "openai": {"15": 3}, "compatible": {"15": 1, "17": 1}, "server": {"15": 2}, "ships": {"15": 1}, "implements": {"15": 1}, "api": {"15": 1}, "completions": {"15": 2}, "chat": {"15": 1}, "endpoints": {"15": 1}, "you": {"15": 1}, "start": {"15": 1}, "serve": {"15": 1}, "command": {"15": 1}, "point": {"15": 1}, "existing": {"15": 1}, "clients": {"15": 1}, "changing": {"15": 1, "16": 1}, "base": {"15": 1}, "url": {"15": 1}, "streaming": {"15": 1}, "responses": {"15": 1}, "logprobs": {"15": 1}, "sampling": {"15": 1}, "parameters": {"15": 1}, "temperature": {"15": 1}, "top_p": {"15": 1}, "max_tokens": {"15": 1}, "supported": {"15": 1}, "speculative": {"16": 2}, "uses": {"16": 1}, "draft": {"16": 2}, "propose": {"16": 1}, "once": {"16": 1}, "target": {"16": 1}, "then": {"16": 1}, "verifies": {"16": 1}, "forward": {"16": 1}, "pass": {"16": 1}, "accurate": {"16": 1}, "multiple": {"16": 1}, "accepted": {"16": 1}, "per": {"16": 1}, "reducing": {"16": 1}, "latency": {"16": 1}, "distribution": {"16": 1}, "installation": {"17": 1}, "install": {"17": 2}, "pip": {"17": 1}, "python": {"17": 1}, "environment": {"17": 1}, "has": {"17": 1}, "cuda": {"17": 1, "18": 1}, "version": {"17": 2, "18": 1}, "building": {"17": 1}, "source": {"17": 1}, "possible": {"17": 1}, "custom": {"17": 1}, "kernels": {"17": 1}, "unreleased": {"17": 1}, "features": {"17": 1}, "make": {"17": 1}, "sure": {"17": 1}, "pytorch": {"17": 1}, "matches": {"17": 1}, "was": {"17": 1}, "built": {"17": 1}, "against": {"17": 1}, "avoid": {"17": 1}, "errors": {"17": 1, "18": 1}, "common": {"18": 1}, "an": {"18": 2}, "error": {"18": 2}, "usually": {"18": 1}, "means": {"18": 1}, "gpu_memory_utilization": {"18": 1}, "max_model_len": {"18": 2}, "lowering": {"18": 1}, "enabling": {"18": 1}, "usual": {"18": 1}, "fixes": {"18": 1}, "mismatch": {"18": 1}, "often": {"18": 1}, "shows": {"18": 1}, "undefined": {"18": 1}, "symbol": {"18": 1}, "time": {"18": 1}}, "chunk_lengths": [17, 18, 131, 7, 50, 46, 3, 47, 75, 55, 78, 63, 57, 57, 62, 55, 45, 44, 51], "avg_len": 50.578947368421055}
+{
+    "chunks": [
+        {
+            "source": {
+                "file_path": "data/test/block_manager.py",
+                "first_character_index": 0,
+                "last_character_index": 116
+            },
+            "text": "\"\"\"Simplified block manager used to test Python chunking.\"\"\"\n\nfrom dataclasses import dataclass, field\n\n\n@dataclass\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/block_manager.py",
+                "first_character_index": 116,
+                "last_character_index": 178
+            },
+            "text": "class PhysicalBlock:\n    block_id: int\n    ref_count: int = 0\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/block_manager.py",
+                "first_character_index": 180,
+                "last_character_index": 773
+            },
+            "text": "class BlockAllocator:\n    \"\"\"Hands out physical KV cache blocks and tracks free ones.\"\"\"\n\n    def __init__(self, num_blocks: int) -> None:\n        self.free_blocks = [PhysicalBlock(i) for i in range(num_blocks)]\n\n    def allocate(self) -> PhysicalBlock:\n        if not self.free_blocks:\n            raise MemoryError(\"No free KV cache blocks left\")\n        block = self.free_blocks.pop()\n        block.ref_count = 1\n        return block\n\n    def free(self, block: PhysicalBlock) -> None:\n        block.ref_count -= 1\n        if block.ref_count == 0:\n            self.free_blocks.append(block)\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/block_manager.py",
+                "first_character_index": 773,
+                "last_character_index": 786
+            },
+            "text": "\n\n@dataclass\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/block_manager.py",
+                "first_character_index": 786,
+                "last_character_index": 1018
+            },
+            "text": "class BlockTable:\n    \"\"\"Maps logical blocks of a sequence to physical blocks.\"\"\"\n\n    blocks: list[PhysicalBlock] = field(default_factory=list)\n\n    def append(self, block: PhysicalBlock) -> None:\n        self.blocks.append(block)\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/block_manager.py",
+                "first_character_index": 1020,
+                "last_character_index": 1239
+            },
+            "text": "def swap_out_to_cpu(table: BlockTable, allocator: BlockAllocator) -> None:\n    \"\"\"Preempt a sequence by releasing its GPU blocks.\"\"\"\n    for block in table.blocks:\n        allocator.free(block)\n    table.blocks.clear()\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 0,
+                "last_character_index": 27
+            },
+            "text": "# vLLM Notes\n\n## Overview\n\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 27,
+                "last_character_index": 318
+            },
+            "text": "vLLM is a high-throughput inference and serving engine for large language models. It focuses on efficient memory management and continuous batching so that many requests can share the same GPU without wasting memory. The project started at UC Berkeley and is now widely used in production.\n\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 318,
+                "last_character_index": 776
+            },
+            "text": "## PagedAttention\n\nPagedAttention is the core idea behind vLLM. Instead of storing the key-value cache of each sequence in one contiguous block of GPU memory, it splits the cache into fixed-size blocks called pages. A block table maps each logical block of a sequence to a physical block in memory. This removes most external fragmentation and allows blocks to be shared between sequences, for example when several outputs are sampled from the same prompt.\n\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 776,
+                "last_character_index": 1137
+            },
+            "text": "## Continuous Batching\n\nTraditional static batching waits for every request in a batch to finish before starting new ones. Continuous batching schedules work at the iteration level: when a sequence finishes, its slot is immediately given to a waiting request. This keeps the GPU busy and greatly improves throughput, especially when output lengths vary a lot.\n\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 1137,
+                "last_character_index": 1607
+            },
+            "text": "## KV Cache Management\n\nThe KV cache stores the attention keys and values of already processed tokens so they do not need to be recomputed at every decoding step. Its size grows linearly with sequence length and batch size, which makes it the main memory bottleneck during inference. The block manager allocates, frees and swaps cache blocks. When memory runs out, the scheduler can preempt a sequence by swapping its blocks to CPU memory or by recomputing them later.\n\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 1607,
+                "last_character_index": 1970
+            },
+            "text": "## Prefix Caching\n\nAutomatic prefix caching reuses KV cache blocks across requests that share the same prompt prefix, such as a long system prompt or a few-shot template. Each block is hashed based on its tokens and the tokens before it. If a new request produces a matching hash, the cached block is reused and the prefill computation for that part is skipped.\n\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 1970,
+                "last_character_index": 2348
+            },
+            "text": "## Scheduler\n\nThe scheduler decides which requests run in each step. It keeps three queues: waiting, running and swapped. At every iteration it tries to admit waiting requests while respecting limits such as max_num_seqs and max_num_batched_tokens. Chunked prefill can split a long prompt into smaller pieces so that decoding requests are not stalled by a single huge prefill.\n\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 2348,
+                "last_character_index": 2702
+            },
+            "text": "## Quantization\n\nvLLM supports several quantization methods to reduce memory use and speed up inference, including GPTQ, AWQ, FP8 and INT8. Quantized weights take less space, which leaves more room for the KV cache and therefore allows larger batches. The trade-off is a small potential loss in model quality, which depends on the method and the model.\n\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 2702,
+                "last_character_index": 3103
+            },
+            "text": "## Tensor Parallelism\n\nFor models too large for a single GPU, vLLM can shard the weights across several GPUs using tensor parallelism. Each layer is split so that every GPU computes a part of the matrix multiplications, and results are combined with all-reduce operations. The option tensor_parallel_size controls how many GPUs are used. Pipeline parallelism is also available for multi-node setups.\n\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 3103,
+                "last_character_index": 3470
+            },
+            "text": "## OpenAI-Compatible Server\n\nvLLM ships with a server that implements the OpenAI API, including the completions and chat completions endpoints. You can start it with the vllm serve command and point existing OpenAI clients to it by changing the base URL. Streaming responses, logprobs and sampling parameters such as temperature, top_p and max_tokens are supported.\n\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 3470,
+                "last_character_index": 3772
+            },
+            "text": "## Speculative Decoding\n\nSpeculative decoding uses a small draft model to propose several tokens at once, which the large target model then verifies in a single forward pass. When the draft is accurate, multiple tokens are accepted per step, reducing latency without changing the output distribution.\n\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 3772,
+                "last_character_index": 4054
+            },
+            "text": "## Installation\n\nInstall vLLM with pip install vllm in a Python environment that has a compatible CUDA version. Building from source is possible for custom kernels or unreleased features. Make sure the PyTorch version matches the one vLLM was built against to avoid import errors.\n\n"
+        },
+        {
+            "source": {
+                "file_path": "data/test/vllm_notes.md",
+                "first_character_index": 4054,
+                "last_character_index": 4381
+            },
+            "text": "## Common Errors\n\nAn out of memory error usually means gpu_memory_utilization is too high or max_model_len is too large for the available GPU. Lowering max_model_len, using a quantized model or enabling tensor parallelism are the usual fixes. A CUDA version mismatch often shows up as an undefined symbol error at import time.\n"
+        }
+    ],
+    "index": {
+        "\"\"\"Simplified block manager used to test Python chunking.\"\"\"": {
+            "0": 1
+        },
+        "from": {
+            "0": 1,
+            "8": 1,
+            "17": 1
+        },
+        "dataclasses": {
+            "0": 1
+        },
+        "import": {
+            "0": 1,
+            "17": 1,
+            "18": 1
+        },
+        "dataclass": {
+            "0": 2,
+            "3": 1
+        },
+        ",": {
+            "0": 1,
+            "2": 2,
+            "4": 1,
+            "5": 1
+        },
+        "field": {
+            "0": 1,
+            "4": 1
+        },
+        "@": {
+            "0": 1,
+            "3": 1
+        },
+        "class": {
+            "1": 1,
+            "2": 1,
+            "4": 1
+        },
+        "PhysicalBlock": {
+            "1": 1,
+            "2": 3,
+            "4": 2
+        },
+        ":": {
+            "1": 3,
+            "2": 8,
+            "4": 4,
+            "5": 4
+        },
+        "block_id": {
+            "1": 1
+        },
+        "int": {
+            "1": 2,
+            "2": 1
+        },
+        "ref_count": {
+            "1": 1,
+            "2": 3
+        },
+        "=": {
+            "1": 1,
+            "2": 3,
+            "4": 2
+        },
+        "0": {
+            "1": 1,
+            "2": 1
+        },
+        "BlockAllocator": {
+            "2": 1,
+            "5": 1
+        },
+        "\"\"\"Hands out physical KV cache blocks and tracks free ones.\"\"\"": {
+            "2": 1
+        },
+        "def": {
+            "2": 3,
+            "4": 1,
+            "5": 1
+        },
+        "__init__": {
+            "2": 1
+        },
+        "(": {
+            "2": 8,
+            "4": 3,
+            "5": 3
+        },
+        "self": {
+            "2": 7,
+            "4": 2
+        },
+        "num_blocks": {
+            "2": 2
+        },
+        ")": {
+            "2": 8,
+            "4": 3,
+            "5": 3
+        },
+        "->": {
+            "2": 3,
+            "4": 1,
+            "5": 1
+        },
+        "None": {
+            "2": 2,
+            "4": 1,
+            "5": 1
+        },
+        ".": {
+            "2": 9,
+            "4": 2,
+            "5": 4
+        },
+        "free_blocks": {
+            "2": 4
+        },
+        "[": {
+            "2": 1,
+            "4": 1
+        },
+        "i": {
+            "2": 2
+        },
+        "for": {
+            "2": 1,
+            "5": 1,
+            "7": 1,
+            "8": 1,
+            "9": 1,
+            "11": 1,
+            "13": 1,
+            "14": 3,
+            "17": 1,
+            "18": 1
+        },
+        "in": {
+            "2": 1,
+            "5": 1,
+            "7": 1,
+            "8": 2,
+            "9": 1,
+            "12": 1,
+            "13": 1,
+            "16": 1,
+            "17": 1
+        },
+        "range": {
+            "2": 1
+        },
+        "]": {
+            "2": 1,
+            "4": 1
+        },
+        "allocate": {
+            "2": 1
+        },
+        "if": {
+            "2": 2,
+            "11": 1
+        },
+        "not": {
+            "2": 1,
+            "10": 1,
+            "12": 1
+        },
+        "raise": {
+            "2": 1
+        },
+        "MemoryError": {
+            "2": 1
+        },
+        "\"No free KV cache blocks left\"": {
+            "2": 1
+        },
+        "block": {
+            "2": 7,
+            "4": 2,
+            "5": 2,
+            "8": 4,
+            "10": 1,
+            "11": 2
+        },
+        "pop": {
+            "2": 1
+        },
+        "1": {
+            "2": 2
+        },
+        "return": {
+            "2": 1
+        },
+        "free": {
+            "2": 1,
+            "5": 1
+        },
+        "-=": {
+            "2": 1
+        },
+        "==": {
+            "2": 1
+        },
+        "append": {
+            "2": 1,
+            "4": 2
+        },
+        "BlockTable": {
+            "4": 1,
+            "5": 1
+        },
+        "\"\"\"Maps logical blocks of a sequence to physical blocks.\"\"\"": {
+            "4": 1
+        },
+        "blocks": {
+            "4": 2,
+            "5": 2,
+            "8": 2,
+            "10": 2,
+            "11": 1
+        },
+        "list": {
+            "4": 2
+        },
+        "default_factory": {
+            "4": 1
+        },
+        "swap_out_to_cpu": {
+            "5": 1
+        },
+        "table": {
+            "5": 3,
+            "8": 1
+        },
+        "allocator": {
+            "5": 2
+        },
+        "\"\"\"Preempt a sequence by releasing its GPU blocks.\"\"\"": {
+            "5": 1
+        },
+        "clear": {
+            "5": 1
+        },
+        "vllm": {
+            "6": 1,
+            "7": 1,
+            "8": 1,
+            "13": 1,
+            "14": 1,
+            "15": 2,
+            "17": 3
+        },
+        "notes": {
+            "6": 1
+        },
+        "overview": {
+            "6": 1
+        },
+        "is": {
+            "7": 2,
+            "8": 1,
+            "9": 1,
+            "11": 3,
+            "13": 1,
+            "14": 2,
+            "16": 1,
+            "17": 1,
+            "18": 2
+        },
+        "a": {
+            "7": 1,
+            "8": 3,
+            "9": 4,
+            "10": 1,
+            "11": 4,
+            "12": 2,
+            "13": 1,
+            "14": 2,
+            "15": 1,
+            "16": 2,
+            "17": 2,
+            "18": 2
+        },
+        "high": {
+            "7": 1,
+            "18": 1
+        },
+        "throughput": {
+            "7": 1,
+            "9": 1
+        },
+        "inference": {
+            "7": 1,
+            "10": 1,
+            "13": 1
+        },
+        "and": {
+            "7": 3,
+            "8": 1,
+            "9": 1,
+            "10": 3,
+            "11": 2,
+            "12": 2,
+            "13": 4,
+            "14": 1,
+            "15": 4
+        },
+        "serving": {
+            "7": 1
+        },
+        "engine": {
+            "7": 1
+        },
+        "large": {
+            "7": 1,
+            "14": 1,
+            "16": 1,
+            "18": 1
+        },
+        "language": {
+            "7": 1
+        },
+        "models": {
+            "7": 1,
+            "14": 1
+        },
+        "it": {
+            "7": 1,
+            "8": 1,
+            "10": 1,
+            "11": 1,
+            "12": 2,
+            "15": 2
+        },
+        "focuses": {
+            "7": 1
+        },
+        "on": {
+            "7": 1,
+            "11": 1,
+            "13": 1
+        },
+        "efficient": {
+            "7": 1
+        },
+        "memory": {
+            "7": 2,
+            "8": 2,
+            "10": 3,
+            "13": 1,
+            "18": 1
+        },
+        "management": {
+            "7": 1,
+            "10": 1
+        },
+        "continuous": {
+            "7": 1,
+            "9": 2
+        },
+        "batching": {
+            "7": 1,
+            "9": 3
+        },
+        "so": {
+            "7": 1,
+            "10": 1,
+            "12": 1,
+            "14": 1
+        },
+        "that": {
+            "7": 1,
+            "11": 2,
+            "12": 1,
+            "14": 1,
+            "15": 1,
+            "17": 1
+        },
+        "many": {
+            "7": 1,
+            "14": 1
+        },
+        "requests": {
+            "7": 1,
+            "11": 1,
+            "12": 3
+        },
+        "can": {
+            "7": 1,
+            "10": 1,
+            "12": 1,
+            "14": 1,
+            "15": 1
+        },
+        "share": {
+            "7": 1,
+            "11": 1
+        },
+        "the": {
+            "7": 2,
+            "8": 4,
+            "9": 2,
+            "10": 5,
+            "11": 4,
+            "12": 1,
+            "13": 4,
+            "14": 3,
+            "15": 4,
+            "16": 3,
+            "17": 2,
+            "18": 2
+        },
+        "same": {
+            "7": 1,
+            "8": 1,
+            "11": 1
+        },
+        "gpu": {
+            "7": 1,
+            "8": 1,
+            "9": 1,
+            "14": 2,
+            "18": 1
+        },
+        "without": {
+            "7": 1,
+            "16": 1
+        },
+        "wasting": {
+            "7": 1
+        },
+        "project": {
+            "7": 1
+        },
+        "started": {
+            "7": 1
+        },
+        "at": {
+            "7": 1,
+            "9": 1,
+            "10": 1,
+            "12": 1,
+            "16": 1,
+            "18": 1
+        },
+        "uc": {
+            "7": 1
+        },
+        "berkeley": {
+            "7": 1
+        },
+        "now": {
+            "7": 1
+        },
+        "widely": {
+            "7": 1
+        },
+        "used": {
+            "7": 1,
+            "14": 1
+        },
+        "production": {
+            "7": 1
+        },
+        "pagedattention": {
+            "8": 2
+        },
+        "core": {
+            "8": 1
+        },
+        "idea": {
+            "8": 1
+        },
+        "behind": {
+            "8": 1
+        },
+        "instead": {
+            "8": 1
+        },
+        "of": {
+            "8": 4,
+            "10": 1,
+            "14": 1,
+            "18": 1
+        },
+        "storing": {
+            "8": 1
+        },
+        "key": {
+            "8": 1
+        },
+        "value": {
+            "8": 1
+        },
+        "cache": {
+            "8": 2,
+            "10": 3,
+            "11": 1,
+            "13": 1
+        },
+        "each": {
+            "8": 2,
+            "11": 1,
+            "12": 1,
+            "14": 1
+        },
+        "sequence": {
+            "8": 2,
+            "9": 1,
+            "10": 2
+        },
+        "one": {
+            "8": 1,
+            "17": 1
+        },
+        "contiguous": {
+            "8": 1
+        },
+        "splits": {
+            "8": 1
+        },
+        "into": {
+            "8": 1,
+            "12": 1
+        },
+        "fixed": {
+            "8": 1
+        },
+        "size": {
+            "8": 1,
+            "10": 2
+        },
+        "called": {
+            "8": 1
+        },
+        "pages": {
+            "8": 1
+        },
+        "maps": {
+            "8": 1
+        },
+        "logical": {
+            "8": 1
+        },
+        "to": {
+            "8": 2,
+            "9": 2,
+            "10": 2,
+            "12": 1,
+            "13": 1,
+            "15": 1,
+            "16": 1,
+            "17": 1
+        },
+        "physical": {
+            "8": 1
+        },
+        "this": {
+            "8": 1,
+            "9": 1
+        },
+        "removes": {
+            "8": 1
+        },
+        "most": {
+            "8": 1
+        },
+        "external": {
+            "8": 1
+        },
+        "fragmentation": {
+            "8": 1
+        },
+        "allows": {
+            "8": 1,
+            "13": 1
+        },
+        "be": {
+            "8": 1,
+            "10": 1
+        },
+        "shared": {
+            "8": 1
+        },
+        "between": {
+            "8": 1
+        },
+        "sequences": {
+            "8": 1
+        },
+        "example": {
+            "8": 1
+        },
+        "when": {
+            "8": 1,
+            "9": 2,
+            "10": 1,
+            "16": 1
+        },
+        "several": {
+            "8": 1,
+            "13": 1,
+            "14": 1,
+            "16": 1
+        },
+        "outputs": {
+            "8": 1
+        },
+        "are": {
+            "8": 1,
+            "12": 1,
+            "14": 2,
+            "15": 1,
+            "16": 1,
+            "18": 1
+        },
+        "sampled": {
+            "8": 1
+        },
+        "prompt": {
+            "8": 1,
+            "11": 2,
+            "12": 1
+        },
+        "traditional": {
+            "9": 1
+        },
+        "static": {
+            "9": 1
+        },
+        "waits": {
+            "9": 1
+        },
+        "every": {
+            "9": 1,
+            "10": 1,
+            "12": 1,
+            "14": 1
+        },
+        "request": {
+            "9": 2,
+            "11": 1
+        },
+        "batch": {
+            "9": 1,
+            "10": 1
+        },
+        "finish": {
+            "9": 1
+        },
+        "before": {
+            "9": 1,
+            "11": 1
+        },
+        "starting": {
+            "9": 1
+        },
+        "new": {
+            "9": 1,
+            "11": 1
+        },
+        "ones": {
+            "9": 1
+        },
+        "schedules": {
+            "9": 1
+        },
+        "work": {
+            "9": 1
+        },
+        "iteration": {
+            "9": 1,
+            "12": 1
+        },
+        "level": {
+            "9": 1
+        },
+        "finishes": {
+            "9": 1
+        },
+        "its": {
+            "9": 1,
+            "10": 2,
+            "11": 1
+        },
+        "slot": {
+            "9": 1
+        },
+        "immediately": {
+            "9": 1
+        },
+        "given": {
+            "9": 1
+        },
+        "waiting": {
+            "9": 1,
+            "12": 2
+        },
+        "keeps": {
+            "9": 1,
+            "12": 1
+        },
+        "busy": {
+            "9": 1
+        },
+        "greatly": {
+            "9": 1
+        },
+        "improves": {
+            "9": 1
+        },
+        "especially": {
+            "9": 1
+        },
+        "output": {
+            "9": 1,
+            "16": 1
+        },
+        "lengths": {
+            "9": 1
+        },
+        "vary": {
+            "9": 1
+        },
+        "lot": {
+            "9": 1
+        },
+        "kv": {
+            "10": 2,
+            "11": 1,
+            "13": 1
+        },
+        "stores": {
+            "10": 1
+        },
+        "attention": {
+            "10": 1
+        },
+        "keys": {
+            "10": 1
+        },
+        "values": {
+            "10": 1
+        },
+        "already": {
+            "10": 1
+        },
+        "processed": {
+            "10": 1
+        },
+        "tokens": {
+            "10": 1,
+            "11": 2,
+            "16": 2
+        },
+        "they": {
+            "10": 1
+        },
+        "do": {
+            "10": 1
+        },
+        "need": {
+            "10": 1
+        },
+        "recomputed": {
+            "10": 1
+        },
+        "decoding": {
+            "10": 1,
+            "12": 1,
+            "16": 2
+        },
+        "step": {
+            "10": 1,
+            "12": 1,
+            "16": 1
+        },
+        "grows": {
+            "10": 1
+        },
+        "linearly": {
+            "10": 1
+        },
+        "with": {
+            "10": 1,
+            "14": 1,
+            "15": 2,
+            "17": 1
+        },
+        "length": {
+            "10": 1
+        },
+        "which": {
+            "10": 1,
+            "12": 1,
+            "13": 2,
+            "16": 1
+        },
+        "makes": {
+            "10": 1
+        },
+        "main": {
+            "10": 1
+        },
+        "bottleneck": {
+            "10": 1
+        },
+        "during": {
+            "10": 1
+        },
+        "manager": {
+            "10": 1
+        },
+        "allocates": {
+            "10": 1
+        },
+        "frees": {
+            "10": 1
+        },
+        "swaps": {
+            "10": 1
+        },
+        "runs": {
+            "10": 1
+        },
+        "out": {
+            "10": 1,
+            "18": 1
+        },
+        "scheduler": {
+            "10": 1,
+            "12": 2
+        },
+        "preempt": {
+            "10": 1
+        },
+        "by": {
+            "10": 2,
+            "12": 1,
+            "15": 1
+        },
+        "swapping": {
+            "10": 1
+        },
+        "cpu": {
+            "10": 1
+        },
+        "or": {
+            "10": 1,
+            "11": 1,
+            "17": 1,
+            "18": 2
+        },
+        "recomputing": {
+            "10": 1
+        },
+        "them": {
+            "10": 1
+        },
+        "later": {
+            "10": 1
+        },
+        "prefix": {
+            "11": 3
+        },
+        "caching": {
+            "11": 2
+        },
+        "automatic": {
+            "11": 1
+        },
+        "reuses": {
+            "11": 1
+        },
+        "across": {
+            "11": 1,
+            "14": 1
+        },
+        "such": {
+            "11": 1,
+            "12": 1,
+            "15": 1
+        },
+        "as": {
+            "11": 1,
+            "12": 1,
+            "15": 1,
+            "18": 1
+        },
+        "long": {
+            "11": 1,
+            "12": 1
+        },
+        "system": {
+            "11": 1
+        },
+        "few": {
+            "11": 1
+        },
+        "shot": {
+            "11": 1
+        },
+        "template": {
+            "11": 1
+        },
+        "hashed": {
+            "11": 1
+        },
+        "based": {
+            "11": 1
+        },
+        "produces": {
+            "11": 1
+        },
+        "matching": {
+            "11": 1
+        },
+        "hash": {
+            "11": 1
+        },
+        "cached": {
+            "11": 1
+        },
+        "reused": {
+            "11": 1
+        },
+        "prefill": {
+            "11": 1,
+            "12": 2
+        },
+        "computation": {
+            "11": 1
+        },
+        "part": {
+            "11": 1,
+            "14": 1
+        },
+        "skipped": {
+            "11": 1
+        },
+        "decides": {
+            "12": 1
+        },
+        "run": {
+            "12": 1
+        },
+        "three": {
+            "12": 1
+        },
+        "queues": {
+            "12": 1
+        },
+        "running": {
+            "12": 1
+        },
+        "swapped": {
+            "12": 1
+        },
+        "tries": {
+            "12": 1
+        },
+        "admit": {
+            "12": 1
+        },
+        "while": {
+            "12": 1
+        },
+        "respecting": {
+            "12": 1
+        },
+        "limits": {
+            "12": 1
+        },
+        "max_num_seqs": {
+            "12": 1
+        },
+        "max_num_batched_tokens": {
+            "12": 1
+        },
+        "chunked": {
+            "12": 1
+        },
+        "split": {
+            "12": 1,
+            "14": 1
+        },
+        "smaller": {
+            "12": 1
+        },
+        "pieces": {
+            "12": 1
+        },
+        "stalled": {
+            "12": 1
+        },
+        "single": {
+            "12": 1,
+            "14": 1,
+            "16": 1
+        },
+        "huge": {
+            "12": 1
+        },
+        "quantization": {
+            "13": 2
+        },
+        "supports": {
+            "13": 1
+        },
+        "methods": {
+            "13": 1
+        },
+        "reduce": {
+            "13": 1,
+            "14": 1
+        },
+        "use": {
+            "13": 1
+        },
+        "speed": {
+            "13": 1
+        },
+        "up": {
+            "13": 1,
+            "18": 1
+        },
+        "including": {
+            "13": 1,
+            "15": 1
+        },
+        "gptq": {
+            "13": 1
+        },
+        "awq": {
+            "13": 1
+        },
+        "fp8": {
+            "13": 1
+        },
+        "int8": {
+            "13": 1
+        },
+        "quantized": {
+            "13": 1,
+            "18": 1
+        },
+        "weights": {
+            "13": 1,
+            "14": 1
+        },
+        "take": {
+            "13": 1
+        },
+        "less": {
+            "13": 1
+        },
+        "space": {
+            "13": 1
+        },
+        "leaves": {
+            "13": 1
+        },
+        "more": {
+            "13": 1
+        },
+        "room": {
+            "13": 1
+        },
+        "therefore": {
+            "13": 1
+        },
+        "larger": {
+            "13": 1
+        },
+        "batches": {
+            "13": 1
+        },
+        "trade": {
+            "13": 1
+        },
+        "off": {
+            "13": 1
+        },
+        "small": {
+            "13": 1,
+            "16": 1
+        },
+        "potential": {
+            "13": 1
+        },
+        "loss": {
+            "13": 1
+        },
+        "model": {
+            "13": 2,
+            "16": 2,
+            "18": 1
+        },
+        "quality": {
+            "13": 1
+        },
+        "depends": {
+            "13": 1
+        },
+        "method": {
+            "13": 1
+        },
+        "tensor": {
+            "14": 2,
+            "18": 1
+        },
+        "parallelism": {
+            "14": 3,
+            "18": 1
+        },
+        "too": {
+            "14": 1,
+            "18": 2
+        },
+        "shard": {
+            "14": 1
+        },
+        "gpus": {
+            "14": 2
+        },
+        "using": {
+            "14": 1,
+            "18": 1
+        },
+        "layer": {
+            "14": 1
+        },
+        "computes": {
+            "14": 1
+        },
+        "matrix": {
+            "14": 1
+        },
+        "multiplications": {
+            "14": 1
+        },
+        "results": {
+            "14": 1
+        },
+        "combined": {
+            "14": 1
+        },
+        "all": {
+            "14": 1
+        },
+        "operations": {
+            "14": 1
+        },
+        "option": {
+            "14": 1
+        },
+        "tensor_parallel_size": {
+            "14": 1
+        },
+        "controls": {
+            "14": 1
+        },
+        "how": {
+            "14": 1
+        },
+        "pipeline": {
+            "14": 1
+        },
+        "also": {
+            "14": 1
+        },
+        "available": {
+            "14": 1,
+            "18": 1
+        },
+        "multi": {
+            "14": 1
+        },
+        "node": {
+            "14": 1
+        },
+        "setups": {
+            "14": 1
+        },
+        "openai": {
+            "15": 3
+        },
+        "compatible": {
+            "15": 1,
+            "17": 1
+        },
+        "server": {
+            "15": 2
+        },
+        "ships": {
+            "15": 1
+        },
+        "implements": {
+            "15": 1
+        },
+        "api": {
+            "15": 1
+        },
+        "completions": {
+            "15": 2
+        },
+        "chat": {
+            "15": 1
+        },
+        "endpoints": {
+            "15": 1
+        },
+        "you": {
+            "15": 1
+        },
+        "start": {
+            "15": 1
+        },
+        "serve": {
+            "15": 1
+        },
+        "command": {
+            "15": 1
+        },
+        "point": {
+            "15": 1
+        },
+        "existing": {
+            "15": 1
+        },
+        "clients": {
+            "15": 1
+        },
+        "changing": {
+            "15": 1,
+            "16": 1
+        },
+        "base": {
+            "15": 1
+        },
+        "url": {
+            "15": 1
+        },
+        "streaming": {
+            "15": 1
+        },
+        "responses": {
+            "15": 1
+        },
+        "logprobs": {
+            "15": 1
+        },
+        "sampling": {
+            "15": 1
+        },
+        "parameters": {
+            "15": 1
+        },
+        "temperature": {
+            "15": 1
+        },
+        "top_p": {
+            "15": 1
+        },
+        "max_tokens": {
+            "15": 1
+        },
+        "supported": {
+            "15": 1
+        },
+        "speculative": {
+            "16": 2
+        },
+        "uses": {
+            "16": 1
+        },
+        "draft": {
+            "16": 2
+        },
+        "propose": {
+            "16": 1
+        },
+        "once": {
+            "16": 1
+        },
+        "target": {
+            "16": 1
+        },
+        "then": {
+            "16": 1
+        },
+        "verifies": {
+            "16": 1
+        },
+        "forward": {
+            "16": 1
+        },
+        "pass": {
+            "16": 1
+        },
+        "accurate": {
+            "16": 1
+        },
+        "multiple": {
+            "16": 1
+        },
+        "accepted": {
+            "16": 1
+        },
+        "per": {
+            "16": 1
+        },
+        "reducing": {
+            "16": 1
+        },
+        "latency": {
+            "16": 1
+        },
+        "distribution": {
+            "16": 1
+        },
+        "installation": {
+            "17": 1
+        },
+        "install": {
+            "17": 2
+        },
+        "pip": {
+            "17": 1
+        },
+        "python": {
+            "17": 1
+        },
+        "environment": {
+            "17": 1
+        },
+        "has": {
+            "17": 1
+        },
+        "cuda": {
+            "17": 1,
+            "18": 1
+        },
+        "version": {
+            "17": 2,
+            "18": 1
+        },
+        "building": {
+            "17": 1
+        },
+        "source": {
+            "17": 1
+        },
+        "possible": {
+            "17": 1
+        },
+        "custom": {
+            "17": 1
+        },
+        "kernels": {
+            "17": 1
+        },
+        "unreleased": {
+            "17": 1
+        },
+        "features": {
+            "17": 1
+        },
+        "make": {
+            "17": 1
+        },
+        "sure": {
+            "17": 1
+        },
+        "pytorch": {
+            "17": 1
+        },
+        "matches": {
+            "17": 1
+        },
+        "was": {
+            "17": 1
+        },
+        "built": {
+            "17": 1
+        },
+        "against": {
+            "17": 1
+        },
+        "avoid": {
+            "17": 1
+        },
+        "errors": {
+            "17": 1,
+            "18": 1
+        },
+        "common": {
+            "18": 1
+        },
+        "an": {
+            "18": 2
+        },
+        "error": {
+            "18": 2
+        },
+        "usually": {
+            "18": 1
+        },
+        "means": {
+            "18": 1
+        },
+        "gpu_memory_utilization": {
+            "18": 1
+        },
+        "max_model_len": {
+            "18": 2
+        },
+        "lowering": {
+            "18": 1
+        },
+        "enabling": {
+            "18": 1
+        },
+        "usual": {
+            "18": 1
+        },
+        "fixes": {
+            "18": 1
+        },
+        "mismatch": {
+            "18": 1
+        },
+        "often": {
+            "18": 1
+        },
+        "shows": {
+            "18": 1
+        },
+        "undefined": {
+            "18": 1
+        },
+        "symbol": {
+            "18": 1
+        },
+        "time": {
+            "18": 1
+        }
+    },
+    "chunk_lengths": [
+        17,
+        18,
+        131,
+        7,
+        50,
+        46,
+        3,
+        47,
+        75,
+        55,
+        78,
+        63,
+        57,
+        57,
+        62,
+        55,
+        45,
+        44,
+        51
+    ],
+    "avg_len": 50.578947368421055
+}
