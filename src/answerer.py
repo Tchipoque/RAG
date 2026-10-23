@@ -11,21 +11,13 @@ def get_text(source: dict):
 
 
 def answer(query, sources, model):
-	prompt ="""You are a code assistant that answers questions about a codebase.
+	prompt ="""
+You are a precise assistant answering questions about the vLLM
+codebase. Answer only with what the provided context supports.
+If the context does not contain the answer, say so plainly.
+Answer in at most four sentences, with no preamble.
 
-Rules:
-1. Answer ONLY with facts that are explicitly written in the Context below.
-2. NEVER use your own knowledge, even if you know the answer.
-3. If the Context does not explicitly contain the answer, reply with exactly this sentence and nothing else:
-The provided context does not contain the answer.
-4. If you can answer, use at most 4 sentences and do not repeat yourself.
-
-Example:
-Context: vLLM uses PagedAttention to manage the KV cache.
-Question: What is the capital of France?
-Answer: The provided context does not contain the answer.
-
-Context:
+Context extracted from the codebase:
 """
 	context = ""
 
@@ -35,13 +27,13 @@ Context:
 
 	prompt += context
 
-	prompt += f'\nQuery: "{query}"'
+	prompt += f'\nQuestion: "{query}", Answer using only the context above.'
 	prompt += '\n Answer: "'
 
 	encoded_token = model.encode(prompt)[0].tolist()
 	result = []
 
-	print(f'\n\033[32mQuestion:\033[0m "{query}"\n\033[32mAnswer:\033[0m "', end="")
+	print(f'\n\033[34mQuestion:\033[0m "{query}"\n\033[34mAnswer:\033[0m "', end="")
 
 	for _ in range(100):
 		logits = model.get_logits_from_input_ids(encoded_token)

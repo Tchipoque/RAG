@@ -37,6 +37,9 @@ def chunk_python(file_path: str, content: str, max_chunk_size: int) -> list[dict
 	if pending_start < len(content):
 		chunks.extend(make_sized_chunks(file_path, content, pending_start, len(content), max_chunk_size))
 
+	print(f"\033[36mCreated {len(chunks)} chunks\033[0m")
+
+
 	return chunks
 
 
@@ -61,7 +64,7 @@ def chunk_markdown(file_path: str, content: str, max_chunk_size: int):
 	if para_start < len(content):
 		chunks.extend(make_sized_chunks(file_path, content, para_start, len(content), max_chunk_size))
 
-
+	print(f"\033[36mCreated {len(chunks)} chunks\033[0m")
 	return chunks
 
 def make_sized_chunks(file_path, content, start, end, max_chunk_size):
@@ -87,7 +90,7 @@ def make_sized_chunks(file_path, content, start, end, max_chunk_size):
 				"text": text,
 			}
 			result.append(data)
-			pos = piece_end
+		pos = piece_end
 
 	return result
 
@@ -107,3 +110,4 @@ class Person:
     def say_hello(self):
         print(self.name)
 """
+

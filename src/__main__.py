@@ -7,25 +7,28 @@ import fire
 from pydantic import ValidationError
 from src.answerer import answer as ans
 from src.models import *
-# from src.models import RagDataset, MinimalSearchResults, StudentSearchResults, MinimalSource
-
+import os
+import time
 
 def index(max_chunk_size: int = 2000) -> None:
+	os.system("clear")
 	print(f"\033[1;33mINDEXING... \033[0m")
 	chunks = []
 	index_dict = {}
 	chunk_lengths = []
 
-	raw_dir = Path("data/test")
+	raw_dir = Path("data/raw")
 
 	for path in raw_dir.rglob("*"):
 		if path.is_file():
 			if path.suffix == ".py":
 				with open(path, "r") as file:
+					print(f"\033[35mReading file {path.name}\033[0m: ", end="")
 					content = file.read()
 				chunks.extend(chunk_python(str(path), content, max_chunk_size))
 			elif path.suffix in [".md", ".txt"]:
 				with open(path, "r") as file:
+					print(f"\033[35mReading file {path.name}\033[0m: ", end="")
 					content = file.read()
 				chunks.extend(chunk_markdown(str(path), content, max_chunk_size))
 
@@ -51,6 +54,7 @@ def index(max_chunk_size: int = 2000) -> None:
 
 
 def search(query, k = 5) -> None:
+	os.system("clear")
 	print("\033[1;36m\nSEARCHING...\n\033[0m")
 
 	with open("data/processed/index.json", "r") as f:
@@ -64,6 +68,7 @@ def search(query, k = 5) -> None:
 		print(output)
 
 def answer(query: str, k: int = 5):
+	os.system("clear")
 	print("\033[1;35m\nANSWERING...\n\033[0m")
 
 	from llm_sdk.llm_sdk import Small_LLM_Model
@@ -78,7 +83,8 @@ def answer(query: str, k: int = 5):
 
 	ans(query, sources, model)
 
-def search_dataset(data_set, k, save_dir):
+def search_dataset(data_set, k=10, save_dir="data/output/search_results/"):
+	os.system("clear")
 	with open("data/processed/index.json", "r") as f:
 		index_data = json.load(f)
 
@@ -102,7 +108,8 @@ def search_dataset(data_set, k, save_dir):
 		json.dump(out.model_dump(), f, indent=4, ensure_ascii=False)
 	print(f"\033[1;32mSaved student_search_results to {out_path}\033[0m")
 
-def answer_dataset(search_results_path: str, save_dir: str):
+def answer_dataset(search_results_path: str, save_dir: str= "data/output/search_results_and_answer/"):
+	os.system("clear")
 	print("\033[1;33m\nANSWERING...\n\033[0m")
 
 	from llm_sdk.llm_sdk import Small_LLM_Model
@@ -115,7 +122,7 @@ def answer_dataset(search_results_path: str, save_dir: str):
 	for r in results["search_results"]:
 		answer = ans(r["question"], r["retrieved_sources"], model)
 		search_results.append(MinimalAnswer(question_id=r["question_id"], question=r["question"], retrieved_sources= r["retrieved_sources"], answer=answer ))
-		print(f"\033[1;35m\n{"_"*10}\033[0m")
+		print(f"\033[1;35m\n{"_"*40}\033[0m")
 
 	out = StudentSearchResultsAndAnswer(search_results=search_results , k=results["k"])
 	Path(save_dir).mkdir(parents=True, exist_ok=True)
@@ -128,6 +135,7 @@ def answer_dataset(search_results_path: str, save_dir: str):
 
 
 if __name__ == "__main__":
+	start = time.time()
 	fire.Fire({
 		"index": index,
 		"search": search,
@@ -135,6 +143,10 @@ if __name__ == "__main__":
 		"search_dataset": search_dataset,
 		"answer_dataset": answer_dataset,
 		})
+	total_seconds = time.time() - start
+	minutes = int(total_seconds // 60)
+	seconds = int(total_seconds % 60)
+	print(f"\033[1;36m Finished Program in {minutes}m {seconds}s\033[0m")
 
 	# try:
 	# 	fire.Fire({"index": index, "search": search})

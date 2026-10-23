@@ -1,0 +1,24 @@
+{
+  "rag_questions": [
+    {
+      "question_id": "q1-pagedattention",
+      "question": "how does PagedAttention avoid memory fragmentation"
+    },
+    {
+      "question_id": "q2-oom",
+      "question": "what causes out of memory errors"
+    },
+    {
+      "question_id": "q3-prefix-cache",
+      "question": "reuse cache for shared prompt prefix"
+    },
+    {
+      "question_id": "q4-multi-gpu",
+      "question": "how to run multiple GPUs"
+    },
+    {
+      "question_id": "q5-block-allocator",
+      "question": "BlockAllocator free blocks"
+    }
+  ]
+}
