@@ -11,7 +11,7 @@ import os
 import time
 
 def index(max_chunk_size: int = 2000) -> None:
-	os.system("clear")
+	os.system("clear	")
 	print(f"\033[1;33mINDEXING... \033[0m")
 	chunks = []
 	index_dict = {}
@@ -50,7 +50,7 @@ def index(max_chunk_size: int = 2000) -> None:
 	with open(file_path, "w") as f:
 		json.dump(data, f, indent=4, ensure_ascii=False)
 
-	print(f"\033[1;32mIngestion complete. Indexed {len(chunks)} chunks under data/processed \033[0m")
+	print(f"\033[1;32mIngestion complete. Indexed {len(chunks)} chunks under data/processed/index.json \033[0m")
 
 
 def search(query, k = 5) -> None:
@@ -119,7 +119,9 @@ def answer_dataset(search_results_path: str, save_dir: str= "data/output/search_
 			results = json.load(f)
 
 	search_results = []
+	n_questions = 0
 	for r in results["search_results"]:
+		n_questions += 1
 		answer = ans(r["question"], r["retrieved_sources"], model)
 		search_results.append(MinimalAnswer(question_id=r["question_id"], question=r["question"], retrieved_sources= r["retrieved_sources"], answer=answer ))
 		print(f"\033[1;35m\n{"_"*40}\033[0m")
@@ -130,6 +132,7 @@ def answer_dataset(search_results_path: str, save_dir: str= "data/output/search_
 
 	with out_path.open("w") as f:
 		json.dump(out.model_dump(), f, indent=4, ensure_ascii=False)
+	print(f"\033[36m Loaded {n_questions} questions ...\033[0m")
 	print(f"\033[1;32mSaved student_search_results_and_answers to {out_path}\033[0m")
 
 
