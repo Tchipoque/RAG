@@ -3,8 +3,7 @@ from collections import defaultdict
 from src.tokenizer import tokenize_text
 
 
-def bm25_search(query, index, chunk_lenghts, avg_len, k=5):
-	K1, B = 1.5, 0.75
+def bm25_search(query, index, chunk_lenghts, avg_len, k=5, K1=1.5, B=0.75):
 	n = len(chunk_lenghts)
 	scores = defaultdict(float)
 	tokens = tokenize_text(query)

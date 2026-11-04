@@ -11,7 +11,7 @@ import os
 import time
 
 def index(max_chunk_size: int = 2000) -> None:
-	os.system("clear	")
+	os.system("clear")
 	print(f"\033[1;33mINDEXING... \033[0m")
 	chunks = []
 	index_dict = {}

@@ -42,3 +42,26 @@ for q in ds["rag_questions"]:
 print(stats)
 for e in examples[:10]:
     print('\n', e)
+
+
+def recall_at_k(idx, dataset, k=5, **params):
+    total = 0.0
+    questions = dataset["rag_questions"]
+    for q in questions:
+        ranks = bm25_search(q["question"], idx["index"], idx["chunk_lengths"],
+                            idx["avg_len"], k, **params)
+        got = [idx["chunks"][cid]["source"] for cid, _ in ranks]
+        gold = q["sources"]
+        found = sum(any(overlaps(g, s) for s in got) for g in gold)
+        total += found / len(gold)
+    return total / len(questions)
+
+# idx = json.load(open("data/processed/index.json"))
+# docs = json.load(open("data/datasets/AnsweredQuestions/dataset_docs_public.json"))
+# code = json.load(open("data/datasets/AnsweredQuestions/dataset_code_public.json"))
+
+# for k1 in (0.9, 1.2, 1.5, 2.0):
+#     for b in (0.4, 0.6, 0.75, 0.9):
+#         d = recall_at_k(idx, docs, 5, K1=k1, B=b)
+#         c = recall_at_k(idx, code, 5, K1=k1, B=b)
+#         print(f"k1={k1} b={b}  docs={d:.3f}  code={c:.3f}")
