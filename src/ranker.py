@@ -1,12 +1,25 @@
 import math
 from collections import defaultdict
-from src.tokenizer import tokenize_text
+from src.tokenizer import tokenize_py_text
+import re
 
+GRAMMAR = {"what", "which", "who", "how", "why", "when", "where", "does",
+           "do", "did", "is", "are", "was", "were", "be", "the", "a", "an",
+           "of", "to", "in", "on", "for", "and", "or", "it", "its", "this",
+           "that", "with", "by", "as", "at", "from", "can", "some"}
+TEMPLATE = {"default", "value", "values", "parameter", "parameters",
+            "method", "function", "class", "returns", "return", "used",
+            "use", "using"}
 
-def bm25_search(query, index, chunk_lenghts, avg_len, k=5, K1=1.5, B=0.75):
+def query_tokens(text: str, drop=GRAMMAR):
+	tokens = re.findall(r"[a-z0-9_]+", text.lower())
+	kept = [t for t in tokens if t not in drop]
+	return kept or tokens
+
+def bm25_search(query, index, chunk_lenghts, avg_len, k=5, K1=1.5, B=0.75, drop=GRAMMAR):
 	n = len(chunk_lenghts)
 	scores = defaultdict(float)
-	tokens = tokenize_text(query)
+	tokens = query_tokens(query)
 
 	for word in set(tokens):
 		postings = index.get(word)
