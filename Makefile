@@ -8,6 +8,8 @@ RESULTS ?=
 # export UV_PROJECT_ENVIRONMENT ?= $(HOME)/sgoinfre/.venv
 # export UV_CACHE_DIR ?= $(HOME)/sgoinfre
 
+export HF_HOME ?= $(HOME)/sgoinfre/hf_cache
+
 .PHONY: install run debug clean lint lint-strict build
 
 # Terminal colors
@@ -53,9 +55,9 @@ index:
 
 search_dataset:
 ifeq ($(TYPE), docs)
-	@uv run python -m src search_dataset --data_set data/datasets/UnansweredQuestions/dataset_docs_public.json --k 10 --save_dir data/output/search_results/UnansweredQuestions
+	@uv run python -m src search_dataset --dataset_path data/datasets/private/UnansweredQuestions/dataset_docs_private.json --k 10 --save_directory data/output/search_results/UnansweredQuestions
 else ifeq ($(TYPE), code)
-	@uv run python -m src search_dataset --data_set data/datasets/UnansweredQuestions/dataset_code_public.json --k 10 --save_dir data/output/search_results/UnansweredQuestions
+	@uv run python -m src search_dataset --dataset_path data/datasets/private/UnansweredQuestions/dataset_code_private.json --k 10 --save_directory data/output/search_results/UnansweredQuestions
 else
 	$(call msg_error,You must specify the dataset type (eg: TYPE=code or TYPE=docs)...)
 endif
@@ -64,14 +66,14 @@ answer_dataset:
 ifeq ($(RESULTS),)
 	$(call msg_error,You must give the search results path (eg: RESULTS=dir/subdir/file)...)
 else
-	@uv run python -m src answer_dataset --search_results_path $(RESULTS)
+	@uv run python -m src answer_dataset --student_search_results_path $(RESULTS)
 endif
 
 check_molli:
 ifeq ($(TYPE), docs)
-	@./moulinette evaluate_student_search_results data/output/search_results/UnansweredQuestions/dataset_docs_public.json data/datasets/AnsweredQuestions/dataset_docs_public.json --k 10 --max_context_length 2000
+	@./moulinette evaluate_student_search_results data/output/search_results/UnansweredQuestions/dataset_docs_private.json data/datasets/private/AnsweredQuestions/dataset_docs_private.json --k 10 --max_context_length 2000
 else ifeq ($(TYPE), code)
-	@./moulinette evaluate_student_search_results data/output/search_results/UnansweredQuestions/dataset_code_public.json data/datasets/AnsweredQuestions/dataset_code_public.json --k 10 --max_context_length 2000
+	@./moulinette evaluate_student_search_results data/output/search_results/UnansweredQuestions/dataset_code_private.json data/datasets/private/AnsweredQuestions/dataset_code_private.json --k 10 --max_context_length 2000
 else
 	$(call msg_error,You must specify the dataset type (eg: TYPE=code or TYPE=docs)...)
 endif
@@ -105,3 +107,6 @@ lint-strict:
 	$(call msg_ok,Strict lint checks passed.)
 
 #uv run python -m moulinette grade_student_answers --set private --student_answer_path ../data/output/function_calling_results.json
+#./exams/scripts/exam_retrieval.sh \
+# --student-path . \
+# --moulinette-path ./moulinette

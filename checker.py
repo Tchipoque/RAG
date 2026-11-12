@@ -2,7 +2,7 @@ import json
 from src.ranker import bm25_search
 
 idx = json.load(open("data/processed/index.json"))
-ds = json.load(open("data/datasets/AnsweredQuestions/dataset_code_public.json"))
+ds = json.load(open("data/datasets/AnsweredQuestions/private/dataset_code_public.json"))
 indexed_files = {c["source"]["file_path"] for c in idx["chunks"]}
 
 GRAMMAR = {"what", "which", "who", "how", "why", "when", "where", "does",

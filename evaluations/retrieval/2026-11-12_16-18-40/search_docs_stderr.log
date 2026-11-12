@@ -1,0 +1,6 @@
+ERROR: The function received no value for the required argument: data_set
+Usage: __main__.py search_dataset DATA_SET <flags>
+  optional flags:        --k | --save_dir
+
+For detailed information on this command, run:
+  __main__.py search_dataset --help

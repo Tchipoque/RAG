@@ -1,113 +1,151 @@
 import ast
+
 from src.models import MinimalSource
 
+
 def build_line_offset(content: str) -> list[int]:
-	offsets = [0]
-	for line in content.splitlines(keepends=True):
-		offsets.append(offsets[-1] + len(line))
-	return offsets
+    """Return character offsets for the start of each line."""
+    offsets = [0]
+    for line in content.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+    return offsets
+
 
 def line_to_char(line_offsets: list[int], line_no: int) -> int:
-	return line_offsets[line_no - 1]
+    """Convert a one-based line number to a character offset."""
+    return line_offsets[line_no - 1]
+
 
 def parse_file(content: str) -> ast.Module:
-	return ast.parse(content)
+    """Parse Python source code into an abstract syntax tree."""
+    return ast.parse(content)
+
 
 def get_top_level_nodes(tree: ast.Module) -> list[ast.stmt]:
-	return list(ast.iter_child_nodes(tree))
-
-def chunk_python(file_path: str, content: str, max_chunk_size: int) -> list[dict[MinimalSource, str]]:
-	line_offsets = build_line_offset(content)
-	tree = ast.parse(content)
-	chunks: list[MinimalSource] = []
-
-	pending_start = 0
-
-	for node in ast.iter_child_nodes(tree):
-		if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
-			start = line_to_char(line_offsets, node.lineno)
-
-			if start > pending_start:
-				chunks.extend(make_sized_chunks(file_path, content, pending_start, start, max_chunk_size))
-
-			end = line_to_char(line_offsets, node.end_lineno + 1) if node.end_lineno < len(content.splitlines()) else len(content)
-			chunks.extend(make_sized_chunks(file_path, content, start, end, max_chunk_size))
-			pending_start = end
-
-	if pending_start < len(content):
-		chunks.extend(make_sized_chunks(file_path, content, pending_start, len(content), max_chunk_size))
-
-	print(f"\033[36mCreated {len(chunks)} chunks\033[0m")
+    """Return the nodes directly contained in a syntax tree."""
+    return list(ast.iter_child_nodes(tree))
 
 
-	return chunks
+def chunk_python(
+    file_path: str, content: str, max_chunk_size: int
+) -> list[dict[str, object]]:
+    """Split Python source into chunks around top-level definitions."""
+    line_offsets = build_line_offset(content)
+    tree = ast.parse(content)
+    chunks: list[MinimalSource] = []
+
+    pending_start = 0
+
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(
+            node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)
+        ):
+            start = line_to_char(line_offsets, node.lineno)
+
+            if start > pending_start:
+                chunks.extend(
+                    make_sized_chunks(
+                        file_path,
+                        content,
+                        pending_start,
+                        start,
+                        max_chunk_size,
+                    )
+                )
+
+            end = (
+                line_to_char(line_offsets, node.end_lineno + 1)
+                if node.end_lineno < len(content.splitlines())
+                else len(content)
+            )
+            chunks.extend(
+                make_sized_chunks(
+                    file_path, content, start, end, max_chunk_size
+                )
+            )
+            pending_start = end
+
+    if pending_start < len(content):
+        chunks.extend(
+            make_sized_chunks(
+                file_path, content, pending_start, len(content), max_chunk_size
+            )
+        )
+
+    # print(f"\033[36mCreated {len(chunks)} chunks\033[0m")
+    return chunks
 
 
-def chunk_markdown(file_path: str, content: str, max_chunk_size: int):
-	chunks = []
-	pos = 0
-	para_start = 0
-	in_fence = False
+def chunk_markdown(
+    file_path: str, content: str, max_chunk_size: int
+) -> list[dict[str, object]]:
+    """Split Markdown or text content into paragraph-sized chunks."""
+    chunks: list[dict[str, object]] = []
+    pos = 0
+    para_start = 0
+    in_fence = False
 
-	for line in content.splitlines(keepends=True):
-		if line.lstrip().startswith("```"):
-			in_fence = not in_fence
-		pos += len(line)
+    for line in content.splitlines(keepends=True):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+        pos += len(line)
 
-		if not in_fence and not line.strip():
-			para = content[para_start: pos].strip()
-			if para.startswith("#") and "\n" not in para:
-				continue
-			chunks.extend(make_sized_chunks(file_path, content, para_start, pos, max_chunk_size))
-			para_start = pos
+        if not in_fence and not line.strip():
+            para = content[para_start: pos].strip()
+            if para.startswith("#") and "\n" not in para:
+                continue
+            chunks.extend(
+                make_sized_chunks(
+                    file_path, content, para_start, pos, max_chunk_size
+                )
+            )
+            para_start = pos
 
-	if para_start < len(content):
-		chunks.extend(make_sized_chunks(file_path, content, para_start, len(content), max_chunk_size))
+    if para_start < len(content):
+        chunks.extend(
+            make_sized_chunks(
+                file_path, content, para_start, len(content), max_chunk_size
+            )
+        )
 
-	print(f"\033[36mCreated {len(chunks)} chunks\033[0m")
-	return chunks
-
-def make_sized_chunks(file_path, content, start, end, max_chunk_size):
-	span = end - start
-	if span <= max_chunk_size:
-		text  = content[start : end]
-		if text.strip():
-			data = {
-					"source": MinimalSource(file_path=file_path, first_character_index=start, last_character_index=end),
-					"text": text,
-				}
-			return [data]
-		return []
-
-	result = []
-	pos = start
-	while pos < end:
-		piece_end = min(pos + max_chunk_size, end)
-		text = content[pos : piece_end]
-		if text.strip():
-			data = {
-				"source": MinimalSource(file_path=file_path, first_character_index=pos, last_character_index=piece_end),
-				"text": text,
-			}
-			result.append(data)
-		pos = piece_end
-
-	return result
+    # print(f"\033[36mCreated {len(chunks)} chunks\033[0m")
+    return chunks
 
 
+def make_sized_chunks(
+    file_path: str, content: str, start: int, end: int, max_chunk_size: int
+) -> list[dict[str, object]]:
+    """Split a source span into chunks no larger than the requested size."""
+    span = end - start
+    if span <= max_chunk_size:
+        text = content[start:end]
+        if text.strip():
+            data = {
+                "source": MinimalSource(
+                    file_path=file_path,
+                    first_character_index=start,
+                    last_character_index=end,
+                ),
+                "text": text,
+            }
+            return [data]
+        return []
 
+    result = []
+    pos = start
+    while pos < end:
+        piece_end = min(pos + max_chunk_size, end)
+        text = content[pos:piece_end]
+        if text.strip():
+            data = {
+                "source": MinimalSource(
+                    file_path=file_path,
+                    first_character_index=pos,
+                    last_character_index=piece_end,
+                ),
+                "text": text,
+            }
+            result.append(data)
+        pos = piece_end
 
-code = """
-import os
-
-def hello(name):
-    print(name)
-
-class Person:
-    def __init__(self, name):
-        self.name = name
-
-    def say_hello(self):
-        print(self.name)
-"""
-
+    return result
