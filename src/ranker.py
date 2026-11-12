@@ -1,6 +1,6 @@
 import math
 from collections import defaultdict
-from src.tokenizer import tokenize_py_text
+from src.tokenizer import tokenize_text
 import re
 
 GRAMMAR = {"what", "which", "who", "how", "why", "when", "where", "does",

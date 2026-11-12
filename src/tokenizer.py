@@ -5,14 +5,10 @@ import re
 from tokenize import TokenError
 
 def tokenize_text(text: str):
-	stop_words = {
-    "what", "which", "who", "how", "why", "when", "where", "does", "do",
-    "did", "is", "are", "was", "were", "be", "the", "a", "an", "of", "to",
-    "in", "on", "for", "and", "or", "it", "its", "this", "that", "with",
-    "by", "as", "at", "from", "can", "some", "used", "use", "using",
-    "default", "value", "values", "parameter", "parameters", "method",
-    "function", "class", "returns", "return",
-	}
+	stop_words = {"what", "which", "who", "how", "why", "when", "where", "does",
+           "do", "did", "is", "are", "was", "were", "be", "the", "a", "an",
+           "of", "to", "in", "on", "for", "and", "or", "it", "its", "this",
+           "that", "with", "by", "as", "at", "from", "can", "some"}
 	tokens = re.findall(r"[a-z0-9_]+", text.lower())
 	kept = [t for t in tokens if t not in stop_words]
 	return kept or tokens
