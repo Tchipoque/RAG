@@ -5,7 +5,7 @@ from pathlib import Path
 
 import fire
 from src.answerer import answer as ans
-from src.chunker import chunk_markdown, chunk_python
+from src.chunker import chunk_markdown, chunk_python, chunk_text
 from src.models import (
     MinimalAnswer,
     MinimalSearchResults,
@@ -35,8 +35,10 @@ def index(max_chunk_size: int = 2000) -> None:
 
         if path.suffix == ".py":
             chunks.extend(chunk_python(str(path), content, max_chunk_size))
-        elif path.suffix in [".md", ".txt"]:
+        elif path.suffix == ".md":
             chunks.extend(chunk_markdown(str(path), content, max_chunk_size))
+        elif path.suffix == ".txt":
+            chunks.extend(chunk_text(str(path), content, max_chunk_size))
 
     for id, chunk in enumerate(chunks):
         n_tokens = indexer(

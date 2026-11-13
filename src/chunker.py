@@ -1,5 +1,5 @@
 import ast
-
+import re
 from src.models import MinimalSource
 
 
@@ -25,6 +25,12 @@ def get_top_level_nodes(tree: ast.Module) -> list[ast.stmt]:
     """Return the nodes directly contained in a syntax tree."""
     return list(ast.iter_child_nodes(tree))
 
+def path_words(file_path: str) -> str:
+    """Turn 'data/raw/vllm-0.10.1/vllm/worker/model_runner.py' into
+    'vllm worker model_runner.py' (drops the data/raw/<repo>/ prefix)."""
+    short = re.sub(r"^.*?data/raw/[^/]+", "", file_path)
+    return short.replace("/", "")
+
 
 def chunk_python(
     file_path: str, content: str, max_chunk_size: int
@@ -33,7 +39,7 @@ def chunk_python(
     line_offsets = build_line_offset(content)
     tree = ast.parse(content)
     chunks: list[MinimalSource] = []
-
+    n_lines = len(content.splitlines())
     pending_start = 0
 
     for node in ast.iter_child_nodes(tree):
@@ -45,22 +51,18 @@ def chunk_python(
             if start > pending_start:
                 chunks.extend(
                     make_sized_chunks(
-                        file_path,
-                        content,
-                        pending_start,
-                        start,
-                        max_chunk_size,
+                        file_path, content, pending_start, start, max_chunk_size,
                     )
                 )
 
             end = (
                 line_to_char(line_offsets, node.end_lineno + 1)
-                if node.end_lineno < len(content.splitlines())
+                if node.end_lineno < n_lines
                 else len(content)
             )
             chunks.extend(
                 make_sized_chunks(
-                    file_path, content, start, end, max_chunk_size
+                    file_path, content, start, end, max_chunk_size, label=node.name
                 )
             )
             pending_start = end
@@ -76,10 +78,10 @@ def chunk_python(
     return chunks
 
 
-def chunk_markdown(
+def chunk_text(
     file_path: str, content: str, max_chunk_size: int
 ) -> list[dict[str, object]]:
-    """Split Markdown or text content into paragraph-sized chunks."""
+    """Split text content into paragraph-sized chunks."""
     chunks: list[dict[str, object]] = []
     pos = 0
     para_start = 0
@@ -111,41 +113,60 @@ def chunk_markdown(
     # print(f"\033[36mCreated {len(chunks)} chunks\033[0m")
     return chunks
 
+def chunk_markdown(
+    file_path: str, content: str, max_chunk_size: int
+) -> list[dict[str, object]]:
+    """Split Markdown content into paragraph-sized chunks."""
+    HEADER = re.compile(r"^#{1,6}\s")
+    spans, in_fence, pos, start = [], False, 0, 0
+
+    for line in content.splitlines(keepends=True):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+
+        if not in_fence and HEADER.match(line) and pos > start:
+            spans.append((start, pos))
+            start = pos
+        pos += len(line)
+
+    if pos > start:
+        spans.append((start, pos))
+
+    chunks = []
+    for s, e in spans:
+        chunks.extend(
+            make_sized_chunks(
+                file_path, content, s, e, max_chunk_size
+            )
+        )
+    return chunks
+
 
 def make_sized_chunks(
-    file_path: str, content: str, start: int, end: int, max_chunk_size: int
+    file_path: str, content: str, start: int, end: int, max_chunk_size: int, label = ""
 ) -> list[dict[str, object]]:
     """Split a source span into chunks no larger than the requested size."""
-    span = end - start
-    if span <= max_chunk_size:
-        text = content[start:end]
-        if text.strip():
-            data = {
-                "source": MinimalSource(
-                    file_path=file_path,
-                    first_character_index=start,
-                    last_character_index=end,
-                ),
-                "text": text,
-            }
-            return [data]
-        return []
 
     result = []
+    overlap = int(max_chunk_size * 0.2)
+    step = max_chunk_size - overlap
+    prefix = f"{path_words(file_path)} {label}\n"
     pos = start
     while pos < end:
         piece_end = min(pos + max_chunk_size, end)
         text = content[pos:piece_end]
         if text.strip():
-            data = {
+            result.append( {
                 "source": MinimalSource(
                     file_path=file_path,
                     first_character_index=pos,
                     last_character_index=piece_end,
                 ),
                 "text": text,
-            }
-            result.append(data)
-        pos = piece_end
+                "index_text": prefix + text,
+            })
+        if piece_end == end:
+            break
+        pos += step
 
     return result
