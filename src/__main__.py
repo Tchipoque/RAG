@@ -1,11 +1,10 @@
 import json
 import os
-import time
 from pathlib import Path
 
 import fire
 from src.answerer import answer as ans
-from src.chunker import chunk_markdown, chunk_python, chunk_text
+from src.chunker import Chunk, chunk_markdown, chunk_python, chunk_text
 from src.models import (
     MinimalAnswer,
     MinimalSearchResults,
@@ -22,13 +21,16 @@ from tqdm import tqdm
 def index(max_chunk_size: int = 2000) -> None:
     """Index raw source files into the processed search index."""
     os.system("clear")
-    chunks = []
-    index_dict = {}
+    chunks: list[Chunk] = []
+    index_dict: dict[str, dict[int, int]] = {}
     chunk_lengths = []
 
     raw_dir = Path("data/raw")
-    files = [f for f in raw_dir.rglob("*") if f.is_file() and f.suffix in [".py", ".md", ".txt"]]
-    
+    files = [
+        f for f in raw_dir.rglob("*")
+        if f.is_file() and f.suffix in [".py", ".md", ".txt"]
+    ]
+
     for path in tqdm(files, desc="Reading Files", unit="file"):
         with open(path, "r") as file:
             content = file.read()
@@ -42,7 +44,7 @@ def index(max_chunk_size: int = 2000) -> None:
 
     for id, chunk in enumerate(chunks):
         n_tokens = indexer(
-            chunk["text"], id, index_dict, chunk["source"].file_path
+            chunk["index_text"], id, index_dict, chunk["source"].file_path
         )
         chunk_lengths.append(n_tokens)
 
@@ -111,7 +113,9 @@ def answer(query: str, k: int = 5) -> None:
 
 
 def search_dataset(
-    dataset_path: str, k: int = 10, save_directory: str = "data/output/search_results/"
+    dataset_path: str,
+    k: int = 10,
+    save_directory: str = "data/output/search_results/",
 ) -> None:
     """Search each question in a dataset and save retrieved sources."""
     os.system("clear")
@@ -124,7 +128,9 @@ def search_dataset(
     search_results = []
     dataset = RagDataset(rag_questions=data["rag_questions"])
 
-    for q in tqdm(dataset.rag_questions, desc="Searching...", unit="questions"):
+    for q in tqdm(
+        dataset.rag_questions, desc="Searching...", unit="questions"
+    ):
         ranks = bm25_search(
             q.question,
             index_data["index"],
@@ -147,7 +153,9 @@ def search_dataset(
 
     with out_path.open("w") as f:
         json.dump(out.model_dump(), f, indent=4, ensure_ascii=False)
-    print(f"\033[1;32m\nSaved student_search_results to {out_path}\033[0m")
+    print(
+        f"\033[1;32m\nSaved student_search_results to {out_path}\033[0m"
+    )
 
 
 def answer_dataset(
@@ -166,7 +174,9 @@ def answer_dataset(
 
     search_results = []
     n_questions = 0
-    for r in tqdm(results["search_results"], desc="Answering...", unit="answers"):
+    for r in tqdm(
+        results["search_results"], desc="Answering...", unit="answers"
+    ):
         n_questions += 1
         answer = ans(r["question"], r["retrieved_sources"], model)
         search_results.append(
@@ -187,7 +197,9 @@ def answer_dataset(
 
     with out_path.open("w") as f:
         json.dump(out.model_dump(), f, indent=4, ensure_ascii=False)
-    print(f"\033[36m Loaded {n_questions} questions ...\033[0m")
+    print(
+        f"\033[36m Loaded {n_questions} questions ...\033[0m"
+    )
     print(
         "\033[1;32mSaved student_search_results_and_answers "
         f"to {out_path}\033[0m"

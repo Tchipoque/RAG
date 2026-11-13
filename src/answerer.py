@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Any
+from typing import Any, cast
 
 
 @lru_cache(maxsize=256)
@@ -11,10 +11,17 @@ def read_file(path: str) -> str:
 
 def get_text(source: dict[str, object]) -> str:
     """Extract the source span described by a chunk metadata mapping."""
-    content = read_file(source["file_path"])
-    return content[
-        source["first_character_index"]:source["last_character_index"]
-    ]
+    file_path = source["file_path"]
+    first = source["first_character_index"]
+    last = source["last_character_index"]
+    if not (
+        isinstance(file_path, str)
+        and isinstance(first, int)
+        and isinstance(last, int)
+    ):
+        raise TypeError("Invalid source metadata")
+    content = read_file(file_path)
+    return content[first:last]
 
 
 def answer(query: str, sources: list[dict[str, object]], model: Any) -> str:
@@ -61,4 +68,4 @@ Context extracted from the codebase:
             break
 
     output = model.decode(result)
-    return output
+    return cast(str, output)

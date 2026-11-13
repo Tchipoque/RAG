@@ -1,18 +1,20 @@
 import math
-import re
 from collections import defaultdict
 from typing import Any
 
+from src.tokenizer import STOP_WORDS, tokenize_split
 
-def query_tokens(text: str) -> list[str]:    
-    """Tokenize a query and remove grammar words when possible."""
-    GRAMMAR = {"what", "which", "who", "how", "why", "when", "where", "does",
-           "do", "did", "is", "are", "was", "were", "be", "the", "a", "an",
-           "of", "to", "in", "on", "for", "and", "or", "it", "its", "this",
-           "that", "with", "by", "as", "at", "from", "can", "some"}
-    tokens = re.findall(r"[a-z0-9_]+", text.lower())
-    kept = [t for t in tokens if t not in GRAMMAR]
-    return kept or tokens
+PART_WEIGHT = 0.5
+
+
+def query_tokens(text: str) -> tuple[list[str], list[str]]:
+    """Return (whole_words, parts) for a query; grammar words removed."""
+
+    whole, parts = tokenize_split(text)
+    kept = [t for t in whole if t not in STOP_WORDS]
+    whole = kept or whole
+    parts = [p for p in parts if p not in STOP_WORDS and p not in whole]
+    return whole, parts
 
 
 def bm25_search(
@@ -26,10 +28,13 @@ def bm25_search(
 ) -> list[tuple[int, Any]]:
     """Rank indexed chunks using the BM25 scoring algorithm."""
     n = len(chunk_lenghts)
-    scores = defaultdict(float)
-    tokens = query_tokens(query)
+    scores: defaultdict[int, float] = defaultdict(float)
+    whole, parts = query_tokens(query)
+    weighted = [(w, 1.0) for w in set(whole)] + [
+        (p, PART_WEIGHT) for p in set(parts)
+    ]
 
-    for word in set(tokens):
+    for word, weight in weighted:
         postings = index.get(word)
         if not postings:
             continue
@@ -39,7 +44,7 @@ def bm25_search(
             norm = tf + K1 * (
                 1 - B + B * chunk_lenghts[int(chunk_id)] / avg_len
             )
-            scores[int(chunk_id)] += idf * tf * (K1 + 1) / norm
+            scores[int(chunk_id)] += weight * idf * tf * (K1 + 1) / norm
 
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return ranked[:k]

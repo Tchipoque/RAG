@@ -4,23 +4,54 @@ from pathlib import Path
 import re
 from typing import Any
 
-
-def tokenize_text(text: str) -> list[str]:
-    """Tokenize text and remove common grammar words."""
-    stop_words = {
+INDENT_PART = re.compile(
+    r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+"
+)
+STOP_WORDS = {
         "what", "which", "who", "how", "why", "when", "where", "does",
         "do", "did", "is", "are", "was", "were", "be", "the", "a", "an",
         "of", "to", "in", "on", "for", "and", "or", "it", "its", "this",
         "that", "with", "by", "as", "at", "from", "can", "some",
     }
-    tokens = re.findall(r"[a-z0-9_]+", text.lower())
-    kept = [t for t in tokens if t not in stop_words]
+
+
+def split_identifier(word: str) -> list[str]:
+    """'ModelRunner' / 'max_num_seqs' -> ['model','runner'] /
+    ['max','num','seqs'].
+    Returns [] when the word has only one part."""
+    parts = [
+        p.lower()
+        for piece in word.split("_")
+        for p in INDENT_PART.findall(piece)
+    ]
+    return parts if len(parts) > 1 else []
+
+
+def tokenize_split(text: str) -> tuple[list[str], list[str]]:
+    """Return (whole_words, sub_parts). Case is read BEFORE lowercasing,
+    so camelCase can be split."""
+    whole: list[str] = []
+    parts: list[str] = []
+    for w in re.findall(r"[A-Za-z0-9_]+", text):
+        whole.append(w.lower())
+        parts.extend(split_identifier(w))
+
+    return whole, parts
+
+
+def tokenize_text(text: str) -> list[str]:
+    """Words + identifier parts, minus grammar words (used for docs)."""
+    whole, parts = tokenize_split(text)
+    tokens = whole + parts
+    kept = [x for x in tokens if x not in STOP_WORDS]
+
     return kept or tokens
 
 
 def tokenize_py_text(code: str) -> list[str]:
-    """Return lowercase word-like tokens from Python source."""
-    return re.findall(r"[a-z0-9_]+", code.lower())
+    """Words + identifier parts from Python source (no stopword removal)."""
+    whole, parts = tokenize_split(code)
+    return whole + parts
 
 
 def tokenize_py(code: str) -> Any:

@@ -1,14 +1,13 @@
 MYPY_FLAGS = --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
-PROMPTS ?= data/input/function_calling_tests.json
 FUNCTIONS ?= data/input/functions_definition.json
-OUTPUT ?= data/output/function_calling_results.json
-TYPE ?= 
+TYPE ?= docs
 RESULTS ?=
 
 # export UV_PROJECT_ENVIRONMENT ?= $(HOME)/sgoinfre/.venv
 # export UV_CACHE_DIR ?= $(HOME)/sgoinfre
 
-export HF_HOME ?= $(HOME)/sgoinfre/hf_cache
+export HF_HOME=/home/etchipoq/sgoinfre/.cache/huggingface
+
 
 .PHONY: install run debug clean lint lint-strict build
 
@@ -41,23 +40,21 @@ endef
 
 install:
 	$(call msg_info, Installing necessar tools...)
-	@pip install uv
 	@uv sync
 	$(call msg_ok,All Done.)
 
 # Run your project
-run:
+run: index search_dataset evaluate
 	$(call msg_step,Running application...)
-	@uv run python3 -m src --functions_definition $(FUNCTIONS) --input $(PROMPTS) --output $(OUTPUT)
-
+	
 index: 
 	@uv run python -m src index --max_chunk_size 2000
 
 search_dataset:
 ifeq ($(TYPE), docs)
-	@uv run python -m src search_dataset --dataset_path data/datasets/private/UnansweredQuestions/dataset_docs_private.json --k 10 --save_directory data/output/search_results/UnansweredQuestions
+	@uv run python -m src search_dataset --dataset_path data/datasets/UnansweredQuestions/dataset_docs_public.json --k 10 --save_directory data/output/search_results/UnansweredQuestions
 else ifeq ($(TYPE), code)
-	@uv run python -m src search_dataset --dataset_path data/datasets/private/UnansweredQuestions/dataset_code_private.json --k 10 --save_directory data/output/search_results/UnansweredQuestions
+	@uv run python -m src search_dataset --dataset_path data/datasets/UnansweredQuestions/dataset_code_public.json --k 10 --save_directory data/output/search_results/UnansweredQuestions
 else
 	$(call msg_error,You must specify the dataset type (eg: TYPE=code or TYPE=docs)...)
 endif
@@ -69,11 +66,11 @@ else
 	@uv run python -m src answer_dataset --student_search_results_path $(RESULTS)
 endif
 
-check_molli:
+evaluate:
 ifeq ($(TYPE), docs)
-	@./moulinette evaluate_student_search_results data/output/search_results/UnansweredQuestions/dataset_docs_private.json data/datasets/private/AnsweredQuestions/dataset_docs_private.json --k 10 --max_context_length 2000
+	@./moulinette evaluate_student_search_results data/output/search_results/UnansweredQuestions/dataset_docs_public.json data/datasets/AnsweredQuestions/dataset_docs_public.json --k 10 --max_context_length 2000
 else ifeq ($(TYPE), code)
-	@./moulinette evaluate_student_search_results data/output/search_results/UnansweredQuestions/dataset_code_private.json data/datasets/private/AnsweredQuestions/dataset_code_private.json --k 10 --max_context_length 2000
+	@./moulinette evaluate_student_search_results data/output/search_results/UnansweredQuestions/dataset_code_public.json data/datasets/AnsweredQuestions/dataset_code_public.json --k 10 --max_context_length 2000
 else
 	$(call msg_error,You must specify the dataset type (eg: TYPE=code or TYPE=docs)...)
 endif
@@ -82,7 +79,7 @@ endif
 # Debug mode
 debug:
 	$(call msg_warn,Starting debugger for maze application...)
-	@python3 -m pdb -m src $(FUNCTIONS) $(PROMPTS) $(OUTPUT)
+	@python3 -m pdb -m src search_dataset --dataset_path data/datasets/UnansweredQuestions/dataset_docs_public.json --k 10 --save_directory data/output/search_results/UnansweredQuestions
 
 # Clean cache files
 clean:
@@ -107,6 +104,7 @@ lint-strict:
 	$(call msg_ok,Strict lint checks passed.)
 
 #uv run python -m moulinette grade_student_answers --set private --student_answer_path ../data/output/function_calling_results.json
-#./exams/scripts/exam_retrieval.sh \
+
+# ./exams/scripts/exam_retrieval.sh \
 # --student-path . \
 # --moulinette-path ./moulinette
