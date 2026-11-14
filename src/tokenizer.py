@@ -78,26 +78,6 @@ def indexer(
 
         return n_tokens
 
-    #   try:
-    #       for token in tokenize_py(text):
-    #           word = token.string
-    #           if token.type == tokenize.ENCODING or not word.strip():
-    #               continue
-    #           n_tokens += 1
-    #           inner = index_dict.setdefault(word, {})
-    #           inner[chunk_id] = inner.get(chunk_id, 0) + 1
-    #       return n_tokens
-    #   except (TokenError, IndentationError):
-    #       tokens = tokenize_py_text(text)
-    #       n_tokens = 0
-    #       for word in tokens:
-    #           if not word.strip():
-    #               continue
-    #           n_tokens += 1
-    #           inner = index_dict.setdefault(word, {})
-    #           inner[chunk_id] = inner.get(chunk_id, 0) + 1
-    #       return n_tokens
-
     tokens = tokenize_text(text)
     n_tokens = 0
     for word in tokens:

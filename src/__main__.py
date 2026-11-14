@@ -163,7 +163,6 @@ def answer_dataset(
     save_directory: str = "data/output/search_results_and_answer/",
 ) -> None:
     """Answer each question in saved search results and write the output."""
-    # print("\033[1;33m\nANSWERING...\n\033[0m")
 
     from llm_sdk.llm_sdk import Small_LLM_Model
     model = Small_LLM_Model()

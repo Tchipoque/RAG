@@ -3,10 +3,11 @@ FUNCTIONS ?= data/input/functions_definition.json
 TYPE ?= docs
 RESULTS ?=
 
-# export UV_PROJECT_ENVIRONMENT ?= $(HOME)/sgoinfre/.venv
-# export UV_CACHE_DIR ?= $(HOME)/sgoinfre
+export UV_PROJECT_ENVIRONMENT ?= $(HOME)/sgoinfre/.venv
+export UV_CACHE_DIR ?= $(HOME)/sgoinfre
 
 export HF_HOME=/home/etchipoq/sgoinfre/.cache/huggingface
+
 
 
 .PHONY: install run debug clean lint lint-strict build
