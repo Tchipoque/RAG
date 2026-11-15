@@ -3,10 +3,10 @@ FUNCTIONS ?= data/input/functions_definition.json
 TYPE ?= docs
 RESULTS ?=
 
-export UV_PROJECT_ENVIRONMENT ?= $(HOME)/sgoinfre/.venv
-export UV_CACHE_DIR ?= $(HOME)/sgoinfre
+# export UV_PROJECT_ENVIRONMENT ?= $(HOME)/sgoinfre/.venv
+# export UV_CACHE_DIR ?= $(HOME)/sgoinfre
 
-export HF_HOME=/home/etchipoq/sgoinfre/.cache/huggingface
+# export HF_HOME=/home/etchipoq/sgoinfre/.cache/huggingface
 
 
 
@@ -47,8 +47,8 @@ install:
 # Run your project
 run: index search_dataset evaluate
 	$(call msg_step,Running application...)
-	
-index: 
+
+index:
 	@uv run python -m src index --max_chunk_size 2000
 
 search_dataset:
